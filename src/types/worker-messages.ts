@@ -8,6 +8,14 @@ export interface Resolution {
   height: number;
 }
 
+export interface QualityReport {
+  sourceScore: number;
+  restoredScore: number;
+  targetResolution: string;
+  outputBitrateMbps: string;
+  stagesExecuted: string[];
+}
+
 // Messages sent FROM main thread TO worker
 export type WorkerRequestMessage =
   | { cmd: 'isSupported' }
@@ -27,7 +35,7 @@ export interface InitData {
 export interface NetworkData {
   name: string;
   bitmap: ImageBitmap;
-  weights: any; // TODO: Type this based on WebSR weight structure
+  weights: any;
 }
 
 // Messages sent FROM worker TO main thread
@@ -35,9 +43,10 @@ export type WorkerResponseMessage =
   | { cmd: 'isSupported'; data: boolean }
   | { cmd: 'progress'; data: number }
   | { cmd: 'eta'; data: string }
+  | { cmd: 'sourceReport'; data: any }
   | { cmd: 'process' }
   | { cmd: 'error'; data: string }
-  | { cmd: 'finished'; data: Blob | null }
+  | { cmd: 'finished'; data: Blob | null; report?: QualityReport }
   | { cmd: 'paused' }
   | { cmd: 'resumed' };
 
