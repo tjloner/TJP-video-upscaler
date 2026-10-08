@@ -180,7 +180,7 @@ export default async function mediabunnyProcessor(args: ProcessorArgs): Promise<
   await output.finalize();
 
   if (writer) {
-    postMessage({ cmd: 'finished', data: null }, []);
+    postMessage({ cmd: 'finished', data: null });
   } else {
     const blob = storage!.toBlob('video/mp4');
     postMessage({ cmd: 'finished', data: blob });
