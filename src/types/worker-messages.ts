@@ -1,19 +1,27 @@
-/**
- * Type-safe worker message definitions for communication between
- * the main thread and the video processing worker.
- */
-
 export interface Resolution {
   width: number;
   height: number;
 }
 
-export interface QualityReport {
-  sourceScore: number;
-  restoredScore: number;
-  targetResolution: string;
-  outputBitrateMbps: string;
+export interface RealTelemetryReport {
+  status: 'PASSED' | 'FAILED';
+  inputFrames: number;
+  outputFrames: number;
+  inputFps: number;
+  outputAverageFps: number;
+  videoDurationSec: number;
+  audioDurationSec: number;
+  avSyncDeltaMs: number;
+  resolution: string;
+  bitrateMbps: string;
+  presetUsed: string;
+  measuredSourceEntropy: number;
+  measuredEnhancedEntropy: number;
+  acutanceGainPercent: number;
+  effectiveBitrateMultiplier: string;
+  temporalVarianceDelta: number;
   stagesExecuted: string[];
+  failureReason?: string;
 }
 
 // Messages sent FROM main thread TO worker
@@ -21,7 +29,13 @@ export type WorkerRequestMessage =
   | { cmd: 'isSupported' }
   | { cmd: 'init'; data: InitData }
   | { cmd: 'network'; data: NetworkData }
-  | { cmd: 'process'; inputHandle: FileSystemFileHandle; outputHandle?: FileSystemFileHandle }
+  | { 
+      cmd: 'process'; 
+      inputHandle: FileSystemFileHandle; 
+      outputHandle?: FileSystemFileHandle;
+      targetScale?: number;
+      preset?: string;
+    }
   | { cmd: 'pause' }
   | { cmd: 'resume' };
 
@@ -46,11 +60,10 @@ export type WorkerResponseMessage =
   | { cmd: 'sourceReport'; data: any }
   | { cmd: 'process' }
   | { cmd: 'error'; data: string }
-  | { cmd: 'finished'; data: Blob | null; report?: QualityReport }
+  | { cmd: 'finished'; data: Blob | null; report?: RealTelemetryReport }
   | { cmd: 'paused' }
   | { cmd: 'resumed' };
 
-// Type guard helpers
 export function isWorkerRequestMessage(msg: any): msg is WorkerRequestMessage {
   return msg && typeof msg.cmd === 'string';
 }

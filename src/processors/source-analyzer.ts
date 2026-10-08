@@ -17,7 +17,6 @@ export interface VideoQualityProfile {
   aspectRatio: string;
   codec: string;
   
-  // Both properties included for complete backward and forward compatibility
   qualityScore: number;
   estimatedSourceScore: number;
 
@@ -61,7 +60,6 @@ export function analyzeSourceVideo(
   const bitrateKbps = durationSec > 0 ? Math.round((fileSizeBytes * 8) / (durationSec * 1000)) : 650;
   const bitsPerPixel = (bitrateKbps * 1000) / (width * height * fps);
 
-  // Compression damage calculations
   const macroblockDamage = Math.min(1.0, Math.max(0.05, 0.22 / Math.max(0.04, bitsPerPixel)));
   const mosquitoNoise = Math.min(1.0, Math.max(0.1, macroblockDamage * 0.85));
   const chromaSubsamplingLoss = 0.5;
@@ -80,7 +78,6 @@ export function analyzeSourceVideo(
   if (compressionDamage === 'HEAVY') noiseLevel = 'HIGH';
   else if (compressionDamage === 'LIGHT') noiseLevel = 'LOW';
 
-  // Quality score (0 to 100)
   const score = Math.min(95, Math.max(20, Math.round(
     (Math.min(0.2, bitsPerPixel) / 0.2) * 35 +
     (Math.min(720, height) / 720) * 35 +
@@ -142,39 +139,39 @@ export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
   switch (preset) {
     case 'NATURAL':
       return {
-        deblockStrength: 0.55,
-        denoiseStrength: 0.35,
-        temporalWindowSize: 5,
-        faceProtectionWeight: 0.95,
-        adaptiveSharpenStrength: 0.12,
+        deblockStrength: 0.15,
+        denoiseStrength: 0.10,
+        temporalWindowSize: 3,
+        faceProtectionWeight: 0.60,
+        adaptiveSharpenStrength: 0.40,
         colorAnchoring: true
       };
     case 'HIGH_DETAIL':
       return {
-        deblockStrength: 0.30,
-        denoiseStrength: 0.18,
+        deblockStrength: 0.05,
+        denoiseStrength: 0.05,
         temporalWindowSize: 3,
-        faceProtectionWeight: 0.75,
-        adaptiveSharpenStrength: 0.35,
+        faceProtectionWeight: 0.30,
+        adaptiveSharpenStrength: 0.85,
         colorAnchoring: true
       };
     case 'REFERENCE_MATCH':
       return {
-        deblockStrength: Math.min(0.85, macroblockDamage + 0.15),
-        denoiseStrength: 0.40,
-        temporalWindowSize: 5,
-        faceProtectionWeight: 0.90,
-        adaptiveSharpenStrength: 0.18,
+        deblockStrength: 0.10,
+        denoiseStrength: 0.10,
+        temporalWindowSize: 3,
+        faceProtectionWeight: 0.45,
+        adaptiveSharpenStrength: 0.70,
         colorAnchoring: true
       };
     case 'BALANCED':
     default:
       return {
-        deblockStrength: 0.45,
-        denoiseStrength: 0.25,
-        temporalWindowSize: 5,
-        faceProtectionWeight: 0.85,
-        adaptiveSharpenStrength: 0.24,
+        deblockStrength: 0.12,
+        denoiseStrength: 0.08,
+        temporalWindowSize: 3,
+        faceProtectionWeight: 0.50,
+        adaptiveSharpenStrength: 0.65,
         colorAnchoring: true
       };
   }

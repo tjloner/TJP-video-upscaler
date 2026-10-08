@@ -1,97 +1,73 @@
 import WebSR from '@websr/websr';
-
+import pipelineProcessor from './processors/pipeline-processor';
 import type {
-  WorkerRequestMessage,
-  WorkerResponseMessage,
   InitData,
-  NetworkData,
   Resolution
 } from './types/worker-messages';
-
-// Processors
-import pipelineProcessor from './processors/pipeline-processor';
- import mediabunnyProcessor from './processors/mediabunny-processor'; // Fallback if needed
 
 // Worker state
 let gpu: any | false;
 let websr: WebSR;
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
-let resolution: Resolution;
-let ctx: ImageBitmapRenderingContext | null;
+let resolution: Resolution = { width: 640, height: 360 };
+let ctx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
 // Default weights
-const weights = require('./weights/cnn-2x-m-rl.json');
+const weights = require('./weights/cnn-2x-l-an.json');
 
-/**
- * Check if WebGPU is supported in this environment
- */
 async function isSupported(): Promise<void> {
   gpu = await WebSR.initWebGPU();
-
   postMessage({
     cmd: 'isSupported',
     data: gpu !== false
-  } satisfies WorkerResponseMessage);
+  } as any);
 }
 
-/**
- * Initialize the worker with canvases and create WebSR instance
- */
 async function init(config: InitData): Promise<void> {
   if (!gpu) {
     gpu = await WebSR.initWebGPU();
   }
 
-  websr = new WebSR({
-    network_name: "anime4k/cnn-2x-m",
-    weights,
-    resolution: config.resolution,
-    gpu: gpu,
-    canvas: config.upscaled as any // OffscreenCanvas is valid but types may be strict
-  });
-
-  resolution = config.resolution;
+  resolution = config.resolution || { width: 640, height: 360 };
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
 
-  ctx = original_canvas.getContext('bitmaprenderer');
-
-  const bitmap2 = await createImageBitmap(config.bitmap, {
-    resizeHeight: config.resolution.height * 2,
-    resizeWidth: config.resolution.width * 2,
+  websr = new WebSR({
+    network_name: "anime4k/cnn-2x-l",
+    weights,
+    resolution: resolution,
+    gpu: gpu,
+    canvas: config.upscaled as any
   });
 
-  await websr.render(config.bitmap as any);
+  ctx = original_canvas.getContext('bitmaprenderer');
 
-  if (ctx) {
-    ctx.transferFromImageBitmap(bitmap2);
+  try {
+    const bitmap2 = await createImageBitmap(config.bitmap, {
+      resizeHeight: resolution.height * 2,
+      resizeWidth: resolution.width * 2,
+    });
+    await websr.render(config.bitmap as any);
+    if (ctx) {
+      ctx.transferFromImageBitmap(bitmap2);
+    }
+  } catch (e) {
+    console.warn("Worker preview render note:", e);
   }
 }
 
-/**
- * Switch to a different AI upscaling network
- */
-async function switchNetwork(name: string, weights: any, bitmap: ImageBitmap): Promise<void> {
-  websr.switchNetwork(name as any, weights);
-
-  await websr.render(bitmap as any);
+async function switchNetwork(name: string, networkWeights: any, bitmap: ImageBitmap): Promise<void> {
+  if (websr) {
+    websr.switchNetwork(name as any, networkWeights);
+    await websr.render(bitmap as any);
+  }
 }
 
-
-
-
-
-
-// Processing functions moved to processors/
-
-/**
- * Worker message handler with type-safe message routing
- */
-self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
-  if (!event.data.cmd) return;
+self.onmessage = async function (event: MessageEvent<any>) {
+  if (!event.data || !event.data.cmd) return;
 
   switch (event.data.cmd) {
     case 'init':
@@ -105,7 +81,7 @@ self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
     case 'pause':
       if (!pauseLock) {
         pauseLock = new Promise(resolve => { resolvePause = resolve; });
-        postMessage({ cmd: 'paused' } satisfies WorkerResponseMessage);
+        postMessage({ cmd: 'paused' } as any);
       }
       break;
 
@@ -114,13 +90,11 @@ self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
         resolvePause();
         pauseLock = null;
         resolvePause = null;
-        postMessage({ cmd: 'resumed' } satisfies WorkerResponseMessage);
+        postMessage({ cmd: 'resumed' } as any);
       }
       break;
-    
+
     case 'process':
-
-
       await pipelineProcessor({
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
@@ -128,11 +102,10 @@ self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
         upscaled_canvas,
         original_canvas,
         resolution,
+        preset: event.data.preset,
+        targetScale: event.data.targetScale || 2,
         getPauseLock: () => pauseLock
       });
-
-     // To use MediaBunny instead, uncomment above import and use:
- //    await mediabunnyProcessor({ inputHandle: event.data.inputHandle, outputHandle: event.data.outputHandle, websr, upscaled_canvas, original_canvas, resolution, getPauseLock: () => pauseLock });
       break;
 
     case 'network':
@@ -141,6 +114,17 @@ self.onmessage = async function (event: MessageEvent<WorkerRequestMessage>) {
         event.data.data.weights,
         event.data.data.bitmap
       );
+      break;
+
+    case 'updatePreview':
+      if (event.data.data?.resolution) {
+        resolution = event.data.data.resolution;
+      }
+      if (websr && event.data.data?.bitmap) {
+        try {
+          await websr.render(event.data.data.bitmap as any);
+        } catch {}
+      }
       break;
   }
 };
