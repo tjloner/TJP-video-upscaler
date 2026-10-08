@@ -11,10 +11,8 @@ import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
-// Initialize Web Worker for Video Processing
 const worker = new Worker(new URL('./worker.ts', import.meta.url));
 
-// DOM and Video State
 let upscaled_canvas: HTMLCanvasElement;
 let original_canvas: HTMLCanvasElement;
 let video: HTMLVideoElement;
@@ -24,7 +22,6 @@ let isOffscreenTransferred = false;
 let imageCompareInstance: any = null;
 let wakeLockSentinel: any = null;
 
-// Image Upscaler State
 let activeImageBitmap: ImageBitmap | null = null;
 let imageDownloadName = "enhanced-image.png";
 
@@ -36,7 +33,6 @@ const weights = {
     }
 };
 
-// Global Window Declarations for Alpine.js & HTML event bindings
 declare global {
     interface Window {
         chooseFile: (e?: Event) => Promise<void>;
@@ -45,8 +41,6 @@ declare global {
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
-        
-        // Image Upscaler Global Handlers
         switchAppMode: (mode: 'video' | 'image') => void;
         chooseImageFile: (e?: Event) => Promise<void>;
         startImageUpscale: () => Promise<void>;
@@ -58,8 +52,7 @@ declare global {
 document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
-    // Shared Alpine Stores
-    Alpine.store('appMode', 'video'); // 'video' | 'image'
+    Alpine.store('appMode', 'video');
     
     // Video Stores
     Alpine.store('state', 'init');
@@ -69,7 +62,7 @@ async function index(): Promise<void> {
     Alpine.store('isAlready4K', false);
 
     // Image Stores
-    Alpine.store('imageState', 'init'); // 'init' | 'preview' | 'processing' | 'complete'
+    Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
     Alpine.store('imagePreset', 'photo');
     Alpine.store('imageWidth', 0);
@@ -89,7 +82,6 @@ async function index(): Promise<void> {
 
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
-    // Bind Globals
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
@@ -101,17 +93,11 @@ function showUnsupported(text: string): void {
     Alpine.store('state', 'unsupported');
 }
 
-/**
- * Top App Mode Switcher (Video vs Image)
- */
 function switchAppMode(mode: 'video' | 'image'): void {
     Alpine.store('appMode', mode);
 }
 
-// ============================================================================
-// IMAGE UPSCALER LOGIC (Nero AI Style)
-// ============================================================================
-
+// Image Upscaler Handlers
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
         if (window.showOpenFilePicker) {
@@ -125,7 +111,6 @@ async function chooseImageFile(e?: Event): Promise<void> {
             const file = await fileHandle.getFile();
             await setupImageFile(file);
         } else {
-            // Fallback input trigger
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/png, image/jpeg, image/webp';
@@ -158,7 +143,6 @@ async function setupImageFile(file: File): Promise<void> {
         Alpine.store('imageScale', 2);
         Alpine.store('imagePreset', 'photo');
 
-        // Draw preview to DOM original image canvas
         const imgOrigCanvas = document.getElementById('img-original-canvas') as HTMLCanvasElement;
         if (imgOrigCanvas) {
             imgOrigCanvas.width = activeImageBitmap.width;
@@ -176,8 +160,8 @@ async function setupImageFile(file: File): Promise<void> {
         window.updateImagePreset = function(preset: ImageModelPreset): void {
             Alpine.store('imagePreset', preset);
         };
-    } catch (err: any) {
-        Alpine.store('imageError', 'Failed to decode image file. Please use a standard PNG, JPEG, or WebP image.');
+    } catch {
+        Alpine.store('imageError', 'Failed to decode image file. Please use PNG, JPEG, or WebP.');
         Alpine.store('imageState', 'error');
     }
 }
@@ -191,13 +175,10 @@ async function startImageUpscale(): Promise<void> {
         const scale = (Alpine.store('imageScale') as 2 | 4) || 2;
         const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'photo';
 
-        // Run high-speed in-browser WebGPU pass
         const upscaledBlob = await upscaleImage(activeImageBitmap, { scale, preset });
-
         const downloadUrl = URL.createObjectURL(upscaledBlob);
         Alpine.store('imageDownloadUrl', downloadUrl);
 
-        // Render preview of upscaled image
         const imgUpscaledPreview = document.getElementById('img-upscaled-preview') as HTMLImageElement;
         if (imgUpscaledPreview) {
             imgUpscaledPreview.src = downloadUrl;
@@ -205,15 +186,12 @@ async function startImageUpscale(): Promise<void> {
 
         Alpine.store('imageState', 'complete');
     } catch (err: any) {
-        Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed. Check hardware acceleration.');
+        Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed.');
         Alpine.store('imageState', 'error');
     }
 }
 
-// ============================================================================
-// VIDEO ENHANCER LOGIC (Preserved 100%)
-// ============================================================================
-
+// Video Enhancer Handlers
 async function chooseFile(e?: Event): Promise<void> {
     try {
         const [fileHandle] = await window.showOpenFilePicker({
@@ -274,7 +252,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         }
 
         if (video.duration > 300) {
-            return showError("Video exceeds 5 minutes. Browser-based processing is optimized for clips under 5 minutes to prevent tab memory limits.");
+            return showError("Video exceeds 5 minutes. Browser processing is optimized for clips under 5 minutes to prevent memory limits.");
         }
 
         Alpine.store('width', vWidth);
@@ -466,11 +444,11 @@ function showError(message: string): void {
     Alpine.store('state', 'error');
     let userMessage = String(message);
     if (userMessage.includes("NotSupportedError")) {
-        userMessage = "GPU Codec Error: Your device hardware video encoder cannot output at this resolution. The target resolution has been adjusted.";
+        userMessage = "GPU Codec Error: Hardware encoder cannot output at this resolution.";
     } else if (userMessage.includes("reading 'width'")) {
-        userMessage = "Video Dimension Error: Unable to read frame dimensions. Please try reloading the page.";
+        userMessage = "Video Dimension Error: Unable to read frame dimensions. Try reloading.";
     } else if (userMessage.includes("QuotaExceededError")) {
-        userMessage = "Disk Quota Exceeded: Your browser ran out of local memory. Please free up disk space and try again.";
+        userMessage = "Disk Quota Exceeded: Browser ran out of memory. Please free up disk space.";
     }
     Alpine.store('error', userMessage);
 }
