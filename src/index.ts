@@ -1,4 +1,5 @@
 import Alpine from 'alpinejs';
+import ImageCompare from './lib/image-compare-viewer.min';
 import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
 import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
@@ -6,6 +7,7 @@ import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import "./index.css";
+import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
@@ -18,6 +20,7 @@ let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
+let imageCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let imageDownloadName = "enhanced-image.png";
@@ -142,7 +145,7 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
     } else {
         Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
         return [
-            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 22.0e6)
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 24.0e6)
         ];
     }
 }
@@ -184,24 +187,26 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
+    video.preload = 'auto';
 
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
 
-    const playerFrame = document.getElementById('player-frame') as HTMLElement;
+    const imageCompareOuter = document.getElementById('image-compare-outer') as HTMLElement;
+    const imageCompareEl = document.getElementById('image-compare') as HTMLElement;
 
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
     };
 
-    video.onloadedmetadata = async function () {
+    video.onloadeddata = async function () {
         const vWidth = video.videoWidth || 640;
         const vHeight = video.videoHeight || 360;
 
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Pre-allocate matching internal resolution on both canvases
+        // PRE-ALLOCATE EXACT 2X RESOLUTION ON BOTH CANVASES BEFORE OFFSCREEN TRANSFER
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -211,17 +216,24 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         if (isPortrait) {
             const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
-            playerFrame.style.width = `${w}px`;
-            playerFrame.style.height = `${h}px`;
+            imageCompareOuter.style.width = `${w}px`;
+            imageCompareOuter.style.height = `${h}px`;
         } else {
-            const maxW = playerFrame.parentElement?.clientWidth || 520;
+            const maxW = imageCompareOuter.parentElement?.clientWidth || 520;
             const h = Math.min(360, Math.round(maxW * (vHeight / vWidth)));
-            playerFrame.style.width = `${maxW}px`;
-            playerFrame.style.height = `${h}px`;
+            imageCompareOuter.style.width = '100%';
+            imageCompareOuter.style.height = `${h}px`;
         }
 
-        playerFrame.style.margin = 'auto';
+        imageCompareOuter.style.margin = 'auto';
+        imageCompareOuter.style.position = 'relative';
 
+        // Mount native ImageCompare viewer cleanly
+        if (!imageCompareInstance) {
+            imageCompareInstance = new ImageCompare(imageCompareEl).mount();
+        }
+
+        // Calculate 5 Timeline Snapshots past opening fade
         const dur = video.duration || 10;
         const snapTimes = [
             Math.min(1.8, Math.max(0.8, dur * 0.15)),
@@ -241,20 +253,14 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Seek past opening black screen directly to 1.8s
+        // Seek past opening black screen directly to first valid frame
         video.currentTime = snapTimes[0];
 
-        // Direct seek listener: guarantees frame is painted immediately
+        // RELIABLE ONSEEKED WITH 80MS RASTERIZATION TICK (Guarantees zero black screen on load)
         video.onseeked = async () => {
-            await drawPreviewFrame();
+            await new Promise(resolve => setTimeout(resolve, 80));
+            await drawSynchronizedFrame();
         };
-
-        // Fallback trigger in case onseeked is delayed
-        setTimeout(() => {
-            if (Alpine.store('state') === 'loading') {
-                drawPreviewFrame();
-            }
-        }, 800);
 
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
@@ -275,7 +281,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function drawPreviewFrame() {
+    async function drawSynchronizedFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -327,7 +333,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Preview capture error:", e);
+            console.warn("Frame capture note:", e);
         }
 
         Alpine.store('target', 'blob');
