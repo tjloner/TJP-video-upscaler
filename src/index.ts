@@ -1,4 +1,5 @@
 import Alpine from 'alpinejs';
+import ImageCompare from './lib/image-compare-viewer.min';
 import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
 import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
@@ -6,6 +7,7 @@ import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import "./index.css";
+import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
@@ -18,6 +20,7 @@ let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
+let imageCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let imageDownloadName = "enhanced-image.png";
@@ -46,7 +49,6 @@ declare global {
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
-        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -69,7 +71,6 @@ async function index(): Promise<void> {
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('engineMode', 'deep');
     Alpine.store('proTipMessage', '');
-    Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
@@ -190,20 +191,21 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
 
-    const playerFrame = document.getElementById('player-frame') as HTMLElement;
+    const imageCompareOuter = document.getElementById('image-compare-outer') as HTMLElement;
+    const imageCompareEl = document.getElementById('image-compare') as HTMLElement;
 
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
     };
 
-    video.onloadedmetadata = async function () {
+    video.onloadeddata = async function () {
         const vWidth = video.videoWidth || 640;
         const vHeight = video.videoHeight || 360;
 
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Explicitly set 2x internal resolution on BOTH canvases before transferring
+        // LOCK 2X INTERNAL RESOLUTION ON BOTH CANVASES BEFORE ANY OFFSCREEN TRANSFER
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -213,20 +215,27 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         if (isPortrait) {
             const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
-            playerFrame.style.width = `${w}px`;
-            playerFrame.style.height = `${h}px`;
+            imageCompareOuter.style.width = `${w}px`;
+            imageCompareOuter.style.height = `${h}px`;
         } else {
-            const maxW = playerFrame.parentElement?.clientWidth || 520;
+            const maxW = imageCompareOuter.parentElement?.clientWidth || 520;
             const h = Math.min(360, Math.round(maxW * (vHeight / vWidth)));
-            playerFrame.style.width = `${maxW}px`;
-            playerFrame.style.height = `${h}px`;
+            imageCompareOuter.style.width = '100%';
+            imageCompareOuter.style.height = `${h}px`;
         }
 
-        playerFrame.style.margin = 'auto';
+        imageCompareOuter.style.margin = 'auto';
+        imageCompareOuter.style.position = 'relative';
 
+        // Mount the native ImageCompare viewer
+        if (!imageCompareInstance) {
+            imageCompareInstance = new ImageCompare(imageCompareEl).mount();
+        }
+
+        // Timeline Snapshots
         const dur = video.duration || 10;
         const snapTimes = [
-            Math.min(1.8, Math.max(0.8, dur * 0.15)),
+            Math.min(1.8, Math.max(0.5, dur * 0.15)),
             Math.min(dur * 0.35, dur - 0.5),
             Math.min(dur * 0.55, dur - 0.5),
             Math.min(dur * 0.75, dur - 0.5),
@@ -243,20 +252,29 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Seek past opening fade-in to the clear frame
+        // CRITICAL FIX FOR BLACK SCREEN:
+        // Seek to 1.8s, and use requestVideoFrameCallback to guarantee pixels are decoded
         video.currentTime = snapTimes[0];
 
-        video.onseeked = async () => {
-            await drawSynchronizedFrame();
+        const onFrameDecoded = async () => {
+            await captureAndSendPreviewFrame();
         };
 
+        if ('requestVideoFrameCallback' in video) {
+            (video as any).requestVideoFrameCallback(onFrameDecoded);
+        } else {
+            video.onseeked = onFrameDecoded;
+        }
+
+        // Interactive Timeline Click
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
-        };
-
-        window.toggleZoomMode = function () {
-            Alpine.store('isZoomed', !Alpine.store('isZoomed'));
+            if ('requestVideoFrameCallback' in video) {
+                (video as any).requestVideoFrameCallback(captureAndSendPreviewFrame);
+            } else {
+                video.onseeked = captureAndSendPreviewFrame;
+            }
         };
 
         window.selectEngineMode = function (mode: EngineMode) {
@@ -273,7 +291,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function drawSynchronizedFrame() {
+    async function captureAndSendPreviewFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -325,7 +343,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Frame draw note:", e);
+            console.warn("Preview capture note:", e);
         }
 
         Alpine.store('target', 'blob');

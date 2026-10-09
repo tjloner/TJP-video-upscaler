@@ -15,7 +15,7 @@
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
     <style>
-        .split-slider-box {
+        #image-compare-outer {
             position: relative;
             background: #000000;
             border-radius: 1rem;
@@ -23,72 +23,21 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 440px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
         }
-        .canvas-frame-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
+        #image-compare {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        #image-compare canvas {
             width: 100% !important;
             height: 100% !important;
             object-fit: fill;
         }
-        .center-slider-line {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: #ffffff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
-            pointer-events: none;
-            z-index: 25;
-        }
-        .center-slider-button {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 34px;
-            height: 34px;
-            background: #ffffff;
-            border-radius: 50%;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            color: #111;
-            cursor: ew-resize;
-            pointer-events: all;
-            user-select: none;
-        }
     </style>
 </head>
 
-<body x-data="{ 
-    licenseModal: false, 
-    isPro: false, 
-    licenseKey: '',
-    sliderPos: 50, 
-    isDragging: false,
-    startDrag(e) { this.isDragging = true; this.updateSlider(e); },
-    stopDrag() { this.isDragging = false; },
-    updateSlider(e) {
-        if (!this.isDragging && e.type !== 'click') return;
-        const frame = $refs.activeVideoFrame;
-        if (!frame) return;
-        const rect = frame.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
-        this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
-    }
-}" 
-@mouseup="stopDrag()" 
-@touchend="stopDrag()" 
-@mousemove="updateSlider($event)" 
-@touchmove="updateSlider($event)"
-style="display: none;" 
-class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+<body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
 
 <div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
     
@@ -105,7 +54,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
             Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
         </p>
 
-        <!-- Pro Status Pill -->
         <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
             <template x-if="isPro">
                 <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
@@ -192,55 +140,13 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
+                    <!-- LEFT COLUMN: PIXEL-PERFECT SPLIT SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div class="w-full split-slider-box flex justify-center items-center">
-                            
-                            <!-- Video-Bounded Inner Frame: Transforms proportionally without black side borders -->
-                            <div x-ref="activeVideoFrame" 
-                                 id="player-frame" 
-                                 @mousedown="startDrag($event)" 
-                                 @touchstart="startDrag($event)"
-                                 :style="$store.isZoomed ? 'transform: scale(1.85); transform-origin: center center; transition: transform 0.2s ease;' : 'transform: scale(1); transition: transform 0.2s ease;'"
-                                 class="relative overflow-hidden cursor-ew-resize user-select-none">
-                                
-                                <!-- LEFT LAYER: RAW ORIGINAL (Soft baseline) -->
-                                <canvas id="original" class="canvas-frame-layer pointer-events-none"></canvas>
-                                
-                                <!-- RIGHT LAYER: NEURAL ENHANCED (Crisp line-thinning AI) -->
-                                <div class="canvas-frame-layer pointer-events-none overflow-hidden" 
-                                     :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                    <canvas id="upscaled" class="canvas-frame-layer pointer-events-none"></canvas>
-                                </div>
-
-                                <!-- Single Synchronized Splitter Divider Line -->
-                                <div class="center-slider-line" :style="'left: ' + sliderPos + '%'">
-                                    <div class="center-slider-button font-bold">
-                                        <span>◀▶</span>
-                                    </div>
-                                </div>
-
-                                <!-- Synchronized Header Badges -->
-                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Original (Raw)
-                                    </span>
-                                </div>
-                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Enhanced (AI)
-                                    </span>
-                                </div>
-
-                                <!-- 2x Zoom Focus Toggle -->
-                                <div class="absolute bottom-3 right-3 z-30 pointer-events-auto">
-                                    <button type="button" @click.stop="toggleZoomMode()" 
-                                            class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
-                                        <span>🔍</span>
-                                        <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
-                                    </button>
-                                </div>
+                        <div id="image-compare-outer">
+                            <div id="image-compare">
+                                <canvas id="original"></canvas>
+                                <canvas id="upscaled"></canvas>
                             </div>
                         </div>
 
