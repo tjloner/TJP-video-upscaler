@@ -49,6 +49,7 @@ declare global {
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
+        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -205,7 +206,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // LOCK 2X INTERNAL RESOLUTION ON BOTH CANVASES BEFORE ANY OFFSCREEN TRANSFER
+        // Pre-allocate 2x buffers
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -227,15 +228,13 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         imageCompareOuter.style.margin = 'auto';
         imageCompareOuter.style.position = 'relative';
 
-        // Mount the native ImageCompare viewer
         if (!imageCompareInstance) {
             imageCompareInstance = new ImageCompare(imageCompareEl).mount();
         }
 
-        // Timeline Snapshots
         const dur = video.duration || 10;
         const snapTimes = [
-            Math.min(1.8, Math.max(0.5, dur * 0.15)),
+            Math.min(1.8, Math.max(0.8, dur * 0.15)),
             Math.min(dur * 0.35, dur - 0.5),
             Math.min(dur * 0.55, dur - 0.5),
             Math.min(dur * 0.75, dur - 0.5),
@@ -252,28 +251,28 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // CRITICAL FIX FOR BLACK SCREEN:
-        // Seek to 1.8s, and use requestVideoFrameCallback to guarantee pixels are decoded
+        // Seek past opening black screen
         video.currentTime = snapTimes[0];
 
         const onFrameDecoded = async () => {
             await captureAndSendPreviewFrame();
         };
 
-        if ('requestVideoFrameCallback' in video) {
-            (video as any).requestVideoFrameCallback(onFrameDecoded);
+        const vAny = video as any;
+        if (typeof vAny.requestVideoFrameCallback === 'function') {
+            vAny.requestVideoFrameCallback(onFrameDecoded);
         } else {
-            video.onseeked = onFrameDecoded;
+            vAny.onseeked = onFrameDecoded;
         }
 
-        // Interactive Timeline Click
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
-            if ('requestVideoFrameCallback' in video) {
-                (video as any).requestVideoFrameCallback(captureAndSendPreviewFrame);
+            const vidObj = video as any;
+            if (typeof vidObj.requestVideoFrameCallback === 'function') {
+                vidObj.requestVideoFrameCallback(captureAndSendPreviewFrame);
             } else {
-                video.onseeked = captureAndSendPreviewFrame;
+                vidObj.onseeked = captureAndSendPreviewFrame;
             }
         };
 
