@@ -15,16 +15,19 @@
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
     <style>
-        /* Pixel-Perfect Split Slider */
-        .player-viewport-frame {
+        .split-slider-box {
             position: relative;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
             background: #000000;
             border-radius: 1rem;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 420px;
+            user-select: none;
+            touch-action: none;
         }
-        .canvas-matched-layer {
+        .canvas-frame-layer {
             position: absolute;
             top: 0;
             left: 0;
@@ -32,31 +35,31 @@
             height: 100% !important;
             object-fit: fill;
         }
-        .slider-divider-rule {
+        .center-slider-line {
             position: absolute;
             top: 0;
             bottom: 0;
-            width: 3px;
+            width: 2px;
             background: #ffffff;
-            box-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
             pointer-events: none;
             z-index: 25;
         }
-        .slider-drag-handle {
+        .center-slider-button {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 36px;
-            height: 36px;
+            width: 34px;
+            height: 34px;
             background: #ffffff;
             border-radius: 50%;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 11px;
-            color: #111111;
+            color: #111;
             cursor: ew-resize;
             pointer-events: all;
             user-select: none;
@@ -70,12 +73,11 @@
     licenseKey: '',
     sliderPos: 50, 
     isDragging: false,
-    zoomActive: false,
     startDrag(e) { this.isDragging = true; this.updateSlider(e); },
     stopDrag() { this.isDragging = false; },
     updateSlider(e) {
         if (!this.isDragging && e.type !== 'click') return;
-        const rect = $refs.viewportBox.getBoundingClientRect();
+        const rect = $refs.sliderBox.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const x = clientX - rect.left;
         this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
@@ -99,7 +101,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
         <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
             TJP <span style="color: #fd5d5d;">AI Studio</span>
         </h1>
-        <p class="text-gray-500 text-xs sm:text-base mt-1 max-w-xl mx-auto">
+        <p class="text-gray-500 text-xs sm:text-sm mt-1 max-w-xl mx-auto">
             Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
         </p>
 
@@ -193,29 +195,27 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div x-ref="viewportBox" 
+                        <div x-ref="sliderBox" 
                              @mousedown="startDrag($event)" 
                              @touchstart="startDrag($event)"
-                             class="relative w-full rounded-2xl overflow-hidden shadow-inner flex justify-center items-center min-h-[400px] bg-black select-none cursor-ew-resize">
+                             class="relative w-full rounded-2xl overflow-hidden shadow-inner flex justify-center items-center min-h-[420px] split-slider-box cursor-ew-resize">
                             
                             <!-- Scalable Container -->
-                            <div id="player-container" 
-                                 :style="zoomActive ? 'transform: scale(2.0); transform-origin: center center; transition: transform 0.25s ease;' : 'transform: scale(1); transition: transform 0.25s ease;'"
-                                 class="relative overflow-hidden w-full h-full flex justify-center items-center">
+                            <div id="player-frame" class="relative overflow-hidden w-full h-full flex justify-center items-center">
                                 
-                                <!-- BOTTOM LAYER: RAW ORIGINAL SOURCE (Visible on Left Side of Divider) -->
-                                <canvas id="original" class="canvas-matched-layer pointer-events-none"></canvas>
+                                <!-- LEFT LAYER: RAW ORIGINAL (Always shows raw pixels on left) -->
+                                <canvas id="original" class="canvas-frame-layer pointer-events-none"></canvas>
                                 
-                                <!-- TOP LAYER: NEURAL ENHANCED FRAME (Visible on Right Side of Divider) -->
-                                <div class="absolute inset-0 pointer-events-none overflow-hidden" 
+                                <!-- RIGHT LAYER: NEURAL ENHANCED (Revealed on right side via clip-path) -->
+                                <div class="canvas-frame-layer pointer-events-none overflow-hidden" 
                                      :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                    <canvas id="upscaled" class="canvas-matched-layer pointer-events-none"></canvas>
+                                    <canvas id="upscaled" class="canvas-frame-layer pointer-events-none"></canvas>
                                 </div>
                             </div>
 
-                            <!-- Single Synchronized Divider Line -->
-                            <div class="slider-divider-rule" :style="'left: ' + sliderPos + '%'">
-                                <div class="slider-drag-handle font-bold">
+                            <!-- Single Synchronized Splitter Line -->
+                            <div class="center-slider-line" :style="'left: ' + sliderPos + '%'">
+                                <div class="center-slider-button font-bold">
                                     <span>◀▶</span>
                                 </div>
                             </div>
@@ -232,16 +232,12 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </span>
                             </div>
 
-                            <!-- 2x Zoom Focus Toggle -->
+                            <!-- 2x Zoom Focus Toggle (Hardware-safe digital crop) -->
                             <div class="absolute bottom-3 right-3 z-30">
                                 <button type="button" @click.stop="toggleZoomMode()" 
-        class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
-    <span>🔍</span>
-    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
-</button> 
                                         class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
                                     <span>🔍</span>
-                                    <span x-text="zoomActive ? '1× Full View' : '2× Zoom Focus'"></span>
+                                    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
                                 </button>
                             </div>
                         </div>
@@ -282,7 +278,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Target Resolution Selection Pills (Includes 4K UHD for 720p) -->
+                        <!-- Target Resolution Selection Pills -->
                         <div>
                             <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
                             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">

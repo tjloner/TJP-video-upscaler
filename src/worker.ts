@@ -6,7 +6,7 @@ import type {
 } from './types/worker-messages';
 
 let gpu: any | false;
-let websr: WebSR;
+let websr: WebSR | null = null;
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
 let resolution: Resolution = { width: 640, height: 360 };
@@ -32,16 +32,19 @@ async function init(config: InitData): Promise<void> {
   resolution = config.resolution || { width: 640, height: 360 };
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
-
   origCtx = original_canvas.getContext('bitmaprenderer');
 
-  websr = new WebSR({
-    network_name: "anime4k/cnn-2x-l",
-    weights,
-    resolution: resolution,
-    gpu: gpu as any,
-    canvas: config.upscaled as any
-  });
+  try {
+    websr = new WebSR({
+      network_name: "anime4k/cnn-2x-l",
+      weights,
+      resolution: resolution,
+      gpu: gpu as any,
+      canvas: config.upscaled as any
+    });
+  } catch (e) {
+    console.warn("WebSR initialization note:", e);
+  }
 }
 
 self.onmessage = async function (event: MessageEvent<any>) {
@@ -76,7 +79,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       await pipelineProcessor({
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
-        websr,
+        websr: websr as any,
         upscaled_canvas,
         original_canvas,
         resolution,
@@ -89,28 +92,56 @@ self.onmessage = async function (event: MessageEvent<any>) {
       });
       break;
 
-    // SYNCHRONIZED DUAL-CANVAS PREVIEW UPDATE
+    // SYNCHRONIZED PREVIEW: Guarantees left and right show the exact same frame
     case 'updatePreview': {
-      const { origBitmap, upscaledBitmap, res } = event.data.data;
-      if (res) resolution = res;
+      const { bitmap } = event.data.data;
+      if (!bitmap) break;
 
-      // 1. Paint Left Side (Raw Original)
-      if (origCtx && origBitmap) {
-        try {
-          origCtx.transferFromImageBitmap(origBitmap);
-        } catch (e) {
-          console.warn("origCtx transfer note:", e);
+      const w = bitmap.width;
+      const h = bitmap.height;
+
+      // Reconfigure WebSR if zoom or resolution changed
+      if (!websr || resolution.width !== w || resolution.height !== h) {
+        resolution = { width: w, height: h };
+        if (gpu && upscaled_canvas) {
+          try {
+            websr = new WebSR({
+              network_name: "anime4k/cnn-2x-l",
+              weights,
+              resolution: { width: w, height: h },
+              gpu: gpu as any,
+              canvas: upscaled_canvas as any
+            });
+          } catch (err) {
+            console.warn("WebSR reconfig:", err);
+          }
         }
       }
 
-      // 2. Render Right Side through WebGPU (Neural Enhanced)
-      if (websr && upscaledBitmap) {
+      // 1. Paint LEFT canvas with raw original frame (scaled 2x with pixelated quality so pixels match)
+      if (origCtx) {
         try {
-          await websr.render(upscaledBitmap as any);
+          const orig2x = await createImageBitmap(bitmap, {
+            resizeWidth: w * 2,
+            resizeHeight: h * 2,
+            resizeQuality: 'pixelated'
+          });
+          origCtx.transferFromImageBitmap(orig2x);
         } catch (e) {
-          console.warn("websr render note:", e);
+          console.warn("Left canvas render error:", e);
         }
       }
+
+      // 2. Paint RIGHT canvas with neural enhanced frame
+      if (websr) {
+        try {
+          await websr.render(bitmap as any);
+        } catch (e) {
+          console.warn("Right canvas render error:", e);
+        }
+      }
+
+      bitmap.close();
       break;
     }
   }

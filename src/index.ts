@@ -31,6 +31,14 @@ export interface ResolutionTargetOption {
     tag: string;
 }
 
+const weights = {
+    'large': {
+        'an': require('./weights/cnn-2x-l-an.json'),
+        'rl': require('./weights/cnn-2x-l-rl.json'),
+        '3d': require('./weights/cnn-2x-l-3d.json'),
+    }
+};
+
 declare global {
     interface Window {
         chooseFile: (e?: Event) => Promise<void>;
@@ -60,7 +68,6 @@ async function index(): Promise<void> {
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
-    Alpine.store('activeTimestamp', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
@@ -180,7 +187,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
 
-    const playerContainer = document.getElementById('player-container') as HTMLElement;
+    const playerFrame = document.getElementById('player-frame') as HTMLElement;
 
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
@@ -193,21 +200,22 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        const containerW = playerContainer?.parentElement?.clientWidth || 520;
+        // Responsive Aspect Ratio Bounds
+        const containerW = playerFrame?.parentElement?.clientWidth || 520;
         const isPortrait = vHeight > vWidth;
 
         if (isPortrait) {
             const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
-            playerContainer.style.width = `${w}px`;
-            playerContainer.style.height = `${h}px`;
+            playerFrame.style.width = `${w}px`;
+            playerFrame.style.height = `${h}px`;
         } else {
             const h = Math.min(360, Math.round(containerW * (vHeight / vWidth)));
-            playerContainer.style.width = '100%';
-            playerContainer.style.height = `${h}px`;
+            playerFrame.style.width = '100%';
+            playerFrame.style.height = `${h}px`;
         }
 
-        playerContainer.style.margin = 'auto';
+        playerFrame.style.margin = 'auto';
 
         // 5 Real Timeline Snapshots
         const dur = video.duration || 10;
@@ -223,28 +231,24 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         }
         Alpine.store('timelineSnapshots', snapshots);
 
-        // Seek past opening fade
+        // Seek past opening fade-in
         video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
 
+        // ACTIVE FRAME DRAWING: Re-renders the frame whenever seek completes
         video.onseeked = async () => {
-            await renderSynchronizedPreview();
+            await drawCurrentSynchronizedFrame();
         };
 
-        setTimeout(() => {
-            renderSynchronizedPreview();
-        }, 1200);
-
-        // Timeline Scrubbing Handler
+        // Interactive Timeline Click
         window.seekToTimestamp = function (timeSec: number) {
-            Alpine.store('activeTimestamp', timeSec);
             video.currentTime = timeSec;
         };
 
-        // Digital Zoom Focus Toggle (Crops on GPU, never turns black)
+        // GPU Digital Zoom Mode
         window.toggleZoomMode = function () {
             const isZoomed = !Alpine.store('isZoomed');
             Alpine.store('isZoomed', isZoomed);
-            renderSynchronizedPreview();
+            drawCurrentSynchronizedFrame();
         };
 
         window.togglePause = function () {
@@ -257,7 +261,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function renderSynchronizedPreview() {
+    async function drawCurrentSynchronizedFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -285,21 +289,22 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             const fullH = video.videoHeight || 360;
             const isZoomed = Alpine.store('isZoomed') as boolean;
 
-            // DIGITAL CROP ZOOM: When Zoom is active, extract the center 45% of the frame
+            // DIGITAL ZOOM: Crop center 50% for 1:1 pixel alignment
             let sx = 0, sy = 0, sw = fullW, sh = fullH;
             if (isZoomed) {
-                sw = Math.floor(fullW * 0.45);
-                sh = Math.floor(fullH * 0.45);
+                sw = Math.floor(fullW * 0.48);
+                sh = Math.floor(fullH * 0.48);
                 sx = Math.floor((fullW - sw) / 2);
                 sy = Math.floor((fullH - sh) / 2);
             }
 
-            const prevW = Math.min(1280, sw);
-            const prevH = Math.min(720, sh);
+            const targetW = Math.min(1280, sw);
+            const targetH = Math.min(720, sh);
 
-            // Create TWO separate, independent bitmaps for Left and Right layers
-            const origBitmap = await createImageBitmap(video, sx, sy, sw, sh, { resizeWidth: prevW, resizeHeight: prevH });
-            const upscaledBitmap = await createImageBitmap(video, sx, sy, sw, sh, { resizeWidth: prevW, resizeHeight: prevH });
+            const frameBitmap = await createImageBitmap(video, sx, sy, sw, sh, {
+                resizeWidth: targetW,
+                resizeHeight: targetH
+            });
 
             if (!isOffscreenTransferred) {
                 const upscaled = upscaled_canvas.transferControlToOffscreen();
@@ -309,35 +314,22 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 worker.postMessage({
                     cmd: "init",
                     data: {
-                        bitmap: upscaledBitmap,
+                        bitmap: frameBitmap,
                         upscaled,
                         original,
-                        resolution: { width: prevW, height: prevH }
+                        resolution: { width: targetW, height: targetH }
                     }
-                }, [upscaledBitmap, upscaled, original]);
-
-                // Send the matching original bitmap for the left side
-                worker.postMessage({
-                    cmd: "updatePreview",
-                    data: {
-                        origBitmap,
-                        upscaledBitmap: null,
-                        res: { width: prevW, height: prevH }
-                    }
-                }, [origBitmap]);
+                }, [frameBitmap, upscaled, original]);
             } else {
-                // Send BOTH matching bitmaps to ensure perfect frame and timestamp synchronization
                 worker.postMessage({
                     cmd: "updatePreview",
                     data: {
-                        origBitmap,
-                        upscaledBitmap,
-                        res: { width: prevW, height: prevH }
+                        bitmap: frameBitmap
                     }
-                }, [origBitmap, upscaledBitmap]);
+                }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Synchronized preview update note:", e);
+            console.warn("Frame draw note:", e);
         }
 
         Alpine.store('target', 'blob');
