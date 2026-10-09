@@ -94,6 +94,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       });
       break;
 
+    // SYNCHRONIZED PREVIEW: Left = Clean Bicubic Smooth, Right = Pure Neural Shader
     case 'updatePreview': {
       const { bitmap } = event.data.data;
       if (!bitmap) break;
@@ -101,6 +102,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const w = bitmap.width;
       const h = bitmap.height;
 
+      // Reconfigure WebSR if resolution changed
       if (!websr || resolution.width !== w || resolution.height !== h) {
         resolution = { width: w, height: h };
         if (gpu && upscaled_canvas) {
@@ -118,19 +120,21 @@ self.onmessage = async function (event: MessageEvent<any>) {
         }
       }
 
+      // 1. Paint LEFT canvas with clean, high-quality resized source frame (no jagged nearest-neighbor)
       if (origCtx) {
         try {
-          const orig2x = await createImageBitmap(bitmap, {
+          const origSmooth = await createImageBitmap(bitmap, {
             resizeWidth: w * 2,
             resizeHeight: h * 2,
-            resizeQuality: 'pixelated'
+            resizeQuality: 'high'
           });
-          origCtx.transferFromImageBitmap(orig2x);
+          origCtx.transferFromImageBitmap(origSmooth);
         } catch (e) {
           console.warn("Left canvas render error:", e);
         }
       }
 
+      // 2. Paint RIGHT canvas with pure neural shader reconstruction
       if (websr) {
         try {
           await websr.render(bitmap as any);
