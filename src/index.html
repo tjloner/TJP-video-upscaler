@@ -105,7 +105,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
             Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
         </p>
 
-        <!-- Pro Status Pill -->
         <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
             <template x-if="isPro">
                 <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
@@ -200,27 +199,21 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                              @touchstart="startDrag($event)"
                              class="relative w-full rounded-2xl overflow-hidden shadow-inner flex justify-center items-center min-h-[420px] split-slider-box cursor-ew-resize">
                             
-                            <!-- Scalable Container -->
                             <div id="player-frame" class="relative overflow-hidden w-full h-full flex justify-center items-center">
-                                
-                                <!-- LEFT LAYER: RAW ORIGINAL (Always shows raw pixels on left) -->
                                 <canvas id="original" class="canvas-frame-layer pointer-events-none"></canvas>
                                 
-                                <!-- RIGHT LAYER: NEURAL ENHANCED (Revealed on right side via clip-path) -->
                                 <div class="canvas-frame-layer pointer-events-none overflow-hidden" 
                                      :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
                                     <canvas id="upscaled" class="canvas-frame-layer pointer-events-none"></canvas>
                                 </div>
                             </div>
 
-                            <!-- Single Synchronized Splitter Line -->
                             <div class="center-slider-line" :style="'left: ' + sliderPos + '%'">
                                 <div class="center-slider-button font-bold">
                                     <span>◀▶</span>
                                 </div>
                             </div>
 
-                            <!-- Synchronized Header Badges -->
                             <div class="absolute top-3 left-3 z-30 pointer-events-none">
                                 <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                     Original (Raw)
@@ -232,7 +225,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </span>
                             </div>
 
-                            <!-- 2x Zoom Focus Toggle (Hardware-safe digital crop) -->
                             <div class="absolute bottom-3 right-3 z-30">
                                 <button type="button" @click.stop="toggleZoomMode()" 
                                         class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
@@ -278,7 +270,35 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Target Resolution Selection Pills -->
+                        <!-- PROCESSING ENGINE SWITCHER (Fast Turbo vs Deep AI Mode) -->
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
+                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Turbo Shader'"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 network-option">
+                                <div>
+                                    <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
+                                    <label for="eng-fast" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
+                                        <span>⚡ Fast Turbo</span>
+                                        <span class="text-[10px] opacity-75 font-normal block">~12–15 FPS</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="engine-mode" id="eng-deep" value="deep" :checked="$store.engineMode === 'deep'" @change="selectEngineMode('deep')">
+                                    <label for="eng-deep" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
+                                        <span>🧠 Deep AI</span>
+                                        <span class="text-[10px] opacity-75 font-normal block">Sub-Pixel Detail</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                <span x-show="$store.engineMode === 'deep'"><strong>Deep AI:</strong> Uses sub-pixel residual reconstruction with auto-tiling to restore text and fine lines.</span>
+                                <span x-show="$store.engineMode === 'fast'"><strong>Fast Turbo:</strong> Lightweight WebGPU shader designed for quick turnaround on longer clips.</span>
+                            </p>
+                        </div>
+
+                        <!-- Target Resolution Selection Pills (Includes 4K UHD for 720p) -->
                         <div>
                             <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
                             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">

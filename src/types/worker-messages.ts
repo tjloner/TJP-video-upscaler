@@ -1,7 +1,14 @@
+/**
+ * Type-Safe Worker Message Definitions
+ * Coordinates main thread UI and background GPU video processing
+ */
+
 export interface Resolution {
   width: number;
   height: number;
 }
+
+export type EngineMode = 'fast' | 'deep';
 
 export interface RealTelemetryReport {
   status: 'PASSED' | 'FAILED';
@@ -15,29 +22,9 @@ export interface RealTelemetryReport {
   resolution: string;
   bitrateMbps: string;
   presetUsed: string;
-  measuredSourceEntropy: number;
-  measuredEnhancedEntropy: number;
-  acutanceGainPercent: number;
-  effectiveBitrateMultiplier: string;
-  temporalVarianceDelta: number;
   stagesExecuted: string[];
   failureReason?: string;
 }
-
-// Messages sent FROM main thread TO worker
-export type WorkerRequestMessage =
-  | { cmd: 'isSupported' }
-  | { cmd: 'init'; data: InitData }
-  | { cmd: 'network'; data: NetworkData }
-  | { 
-      cmd: 'process'; 
-      inputHandle: FileSystemFileHandle; 
-      outputHandle?: FileSystemFileHandle;
-      targetScale?: number;
-      preset?: string;
-    }
-  | { cmd: 'pause' }
-  | { cmd: 'resume' };
 
 export interface InitData {
   bitmap: ImageBitmap;
@@ -52,6 +39,32 @@ export interface NetworkData {
   weights: any;
 }
 
+export interface UpdatePreviewData {
+  bitmap: ImageBitmap;
+  resolution?: Resolution;
+}
+
+// Messages sent FROM main thread TO worker
+export type WorkerRequestMessage =
+  | { cmd: 'isSupported' }
+  | { cmd: 'init'; data: InitData }
+  | { cmd: 'network'; data: NetworkData }
+  | { cmd: 'updatePreview'; data: UpdatePreviewData }
+  | { 
+      cmd: 'process'; 
+      inputHandle: FileSystemFileHandle; 
+      outputHandle?: FileSystemFileHandle;
+      targetScale?: number;
+      targetWidth?: number;
+      targetHeight?: number;
+      targetBitrate?: number;
+      engineMode?: EngineMode;
+      preset?: string;
+      aiModel?: string;
+    }
+  | { cmd: 'pause' }
+  | { cmd: 'resume' };
+
 // Messages sent FROM worker TO main thread
 export type WorkerResponseMessage =
   | { cmd: 'isSupported'; data: boolean }
@@ -64,6 +77,7 @@ export type WorkerResponseMessage =
   | { cmd: 'paused' }
   | { cmd: 'resumed' };
 
+// Type guard helpers
 export function isWorkerRequestMessage(msg: any): msg is WorkerRequestMessage {
   return msg && typeof msg.cmd === 'string';
 }

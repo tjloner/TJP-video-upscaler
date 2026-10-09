@@ -1,7 +1,7 @@
 import Alpine from 'alpinejs';
 import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
-import type { WorkerRequestMessage } from './types/worker-messages';
+import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -44,6 +44,7 @@ declare global {
         chooseFile: (e?: Event) => Promise<void>;
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
+        selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
         toggleZoomMode: () => void;
         togglePause: () => void;
@@ -66,6 +67,7 @@ async function index(): Promise<void> {
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
+    Alpine.store('engineMode', 'deep'); // Default to Deep AI Mode
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
@@ -200,7 +202,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Responsive Aspect Ratio Bounds
         const containerW = playerFrame?.parentElement?.clientWidth || 520;
         const isPortrait = vHeight > vWidth;
 
@@ -217,7 +218,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         playerFrame.style.margin = 'auto';
 
-        // 5 Real Timeline Snapshots
         const dur = video.duration || 10;
         const snapRatios = [0.02, 0.20, 0.40, 0.65, 0.88];
         const snapshots: { time: number; label: string }[] = [];
@@ -231,24 +231,24 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         }
         Alpine.store('timelineSnapshots', snapshots);
 
-        // Seek past opening fade-in
         video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
 
-        // ACTIVE FRAME DRAWING: Re-renders the frame whenever seek completes
         video.onseeked = async () => {
             await drawCurrentSynchronizedFrame();
         };
 
-        // Interactive Timeline Click
         window.seekToTimestamp = function (timeSec: number) {
             video.currentTime = timeSec;
         };
 
-        // GPU Digital Zoom Mode
         window.toggleZoomMode = function () {
             const isZoomed = !Alpine.store('isZoomed');
             Alpine.store('isZoomed', isZoomed);
             drawCurrentSynchronizedFrame();
+        };
+
+        window.selectEngineMode = function (mode: EngineMode) {
+            Alpine.store('engineMode', mode);
         };
 
         window.togglePause = function () {
@@ -289,7 +289,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             const fullH = video.videoHeight || 360;
             const isZoomed = Alpine.store('isZoomed') as boolean;
 
-            // DIGITAL ZOOM: Crop center 50% for 1:1 pixel alignment
             let sx = 0, sy = 0, sw = fullW, sh = fullH;
             if (isZoomed) {
                 sw = Math.floor(fullW * 0.48);
@@ -366,6 +365,7 @@ async function initRecording(): Promise<void> {
     const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
+    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -386,7 +386,8 @@ async function initRecording(): Promise<void> {
         targetWidth: activeOpt.targetWidth,
         targetHeight: activeOpt.targetHeight,
         targetScale: activeOpt.scale,
-        targetBitrate: activeOpt.bitrate
+        targetBitrate: activeOpt.bitrate,
+        engineMode: engineMode
     } as any);
 }
 

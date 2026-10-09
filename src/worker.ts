@@ -88,11 +88,12 @@ self.onmessage = async function (event: MessageEvent<any>) {
         targetWidth: event.data.targetWidth,
         targetHeight: event.data.targetHeight,
         targetBitrate: event.data.targetBitrate,
+        engineMode: event.data.engineMode || 'deep',
+        aiModel: event.data.aiModel,
         getPauseLock: () => pauseLock
       });
       break;
 
-    // SYNCHRONIZED PREVIEW: Guarantees left and right show the exact same frame
     case 'updatePreview': {
       const { bitmap } = event.data.data;
       if (!bitmap) break;
@@ -100,7 +101,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const w = bitmap.width;
       const h = bitmap.height;
 
-      // Reconfigure WebSR if zoom or resolution changed
       if (!websr || resolution.width !== w || resolution.height !== h) {
         resolution = { width: w, height: h };
         if (gpu && upscaled_canvas) {
@@ -118,7 +118,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
         }
       }
 
-      // 1. Paint LEFT canvas with raw original frame (scaled 2x with pixelated quality so pixels match)
       if (origCtx) {
         try {
           const orig2x = await createImageBitmap(bitmap, {
@@ -132,7 +131,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
         }
       }
 
-      // 2. Paint RIGHT canvas with neural enhanced frame
       if (websr) {
         try {
           await websr.render(bitmap as any);
