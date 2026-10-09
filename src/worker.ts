@@ -5,18 +5,16 @@ import type {
   Resolution
 } from './types/worker-messages';
 
-// Worker state
 let gpu: any | false;
 let websr: WebSR;
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
 let resolution: Resolution = { width: 640, height: 360 };
-let ctx: any = null;
+let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Default weights: Photographic model for realistic live-action fidelity
-const weights = require('./weights/cnn-2x-l-rl.json');
+const weights = require('./weights/cnn-2x-l-an.json');
 
 async function isSupported(): Promise<void> {
   gpu = await WebSR.initWebGPU();
@@ -35,35 +33,15 @@ async function init(config: InitData): Promise<void> {
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
 
+  origCtx = original_canvas.getContext('bitmaprenderer');
+
   websr = new WebSR({
     network_name: "anime4k/cnn-2x-l",
     weights,
     resolution: resolution,
-    gpu: gpu,
+    gpu: gpu as any,
     canvas: config.upscaled as any
   });
-
-  ctx = original_canvas.getContext('bitmaprenderer');
-
-  try {
-    const bitmap2 = await createImageBitmap(config.bitmap, {
-      resizeHeight: resolution.height * 2,
-      resizeWidth: resolution.width * 2,
-    });
-    await websr.render(config.bitmap as any);
-    if (ctx) {
-      ctx.transferFromImageBitmap(bitmap2);
-    }
-  } catch (e) {
-    console.warn("Worker preview render note:", e);
-  }
-}
-
-async function switchNetwork(name: string, networkWeights: any, bitmap: ImageBitmap): Promise<void> {
-  if (websr) {
-    websr.switchNetwork(name as any, networkWeights);
-    await websr.render(bitmap as any);
-  }
 }
 
 self.onmessage = async function (event: MessageEvent<any>) {
@@ -95,7 +73,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
       break;
 
     case 'process':
-      // Forward all dynamic Smart Resolution parameters
       await pipelineProcessor({
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
@@ -112,23 +89,29 @@ self.onmessage = async function (event: MessageEvent<any>) {
       });
       break;
 
-    case 'network':
-      await switchNetwork(
-        event.data.data.name,
-        event.data.data.weights,
-        event.data.data.bitmap
-      );
-      break;
+    // SYNCHRONIZED DUAL-CANVAS PREVIEW UPDATE
+    case 'updatePreview': {
+      const { origBitmap, upscaledBitmap, res } = event.data.data;
+      if (res) resolution = res;
 
-    case 'updatePreview':
-      if (event.data.data?.resolution) {
-        resolution = event.data.data.resolution;
-      }
-      if (websr && event.data.data?.bitmap) {
+      // 1. Paint Left Side (Raw Original)
+      if (origCtx && origBitmap) {
         try {
-          await websr.render(event.data.data.bitmap as any);
-        } catch {}
+          origCtx.transferFromImageBitmap(origBitmap);
+        } catch (e) {
+          console.warn("origCtx transfer note:", e);
+        }
+      }
+
+      // 2. Render Right Side through WebGPU (Neural Enhanced)
+      if (websr && upscaledBitmap) {
+        try {
+          await websr.render(upscaledBitmap as any);
+        } catch (e) {
+          console.warn("websr render note:", e);
+        }
       }
       break;
+    }
   }
 };

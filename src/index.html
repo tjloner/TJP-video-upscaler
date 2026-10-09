@@ -234,7 +234,11 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                             <!-- 2x Zoom Focus Toggle -->
                             <div class="absolute bottom-3 right-3 z-30">
-                                <button type="button" @click.stop="zoomActive = !zoomActive" 
+                                <button type="button" @click.stop="toggleZoomMode()" 
+        class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
+    <span>🔍</span>
+    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
+</button> 
                                         class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all">
                                     <span>🔍</span>
                                     <span x-text="zoomActive ? '1× Full View' : '2× Zoom Focus'"></span>

@@ -31,20 +31,13 @@ export interface ResolutionTargetOption {
     tag: string;
 }
 
-const weights = {
-    'large': {
-        'an': require('./weights/cnn-2x-l-an.json'),
-        'rl': require('./weights/cnn-2x-l-rl.json'),
-        '3d': require('./weights/cnn-2x-l-3d.json'),
-    }
-};
-
 declare global {
     interface Window {
         chooseFile: (e?: Event) => Promise<void>;
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
         seekToTimestamp: (timeSeconds: number) => void;
+        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -66,6 +59,8 @@ async function index(): Promise<void> {
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('proTipMessage', '');
+    Alpine.store('isZoomed', false);
+    Alpine.store('activeTimestamp', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
@@ -198,7 +193,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Responsive Aspect Ratio Bounds
         const containerW = playerContainer?.parentElement?.clientWidth || 520;
         const isPortrait = vHeight > vWidth;
 
@@ -229,16 +223,28 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         }
         Alpine.store('timelineSnapshots', snapshots);
 
-        // Seek past opening fade-in
+        // Seek past opening fade
         video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
 
-        // ACTIVE SEEK LISTENER: Re-renders the frame whenever user clicks a timeline snapshot!
         video.onseeked = async () => {
-            await renderFrameAtCurrentTime();
+            await renderSynchronizedPreview();
         };
 
+        setTimeout(() => {
+            renderSynchronizedPreview();
+        }, 1200);
+
+        // Timeline Scrubbing Handler
         window.seekToTimestamp = function (timeSec: number) {
+            Alpine.store('activeTimestamp', timeSec);
             video.currentTime = timeSec;
+        };
+
+        // Digital Zoom Focus Toggle (Crops on GPU, never turns black)
+        window.toggleZoomMode = function () {
+            const isZoomed = !Alpine.store('isZoomed');
+            Alpine.store('isZoomed', isZoomed);
+            renderSynchronizedPreview();
         };
 
         window.togglePause = function () {
@@ -251,7 +257,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function renderFrameAtCurrentTime() {
+    async function renderSynchronizedPreview() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -275,9 +281,25 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('size', humanFileSize(estimated_size));
 
         try {
-            const prevW = Math.min(1280, video.videoWidth || 640);
-            const prevH = Math.min(720, video.videoHeight || 360);
-            const bitmap = await createImageBitmap(video, { resizeWidth: prevW, resizeHeight: prevH });
+            const fullW = video.videoWidth || 640;
+            const fullH = video.videoHeight || 360;
+            const isZoomed = Alpine.store('isZoomed') as boolean;
+
+            // DIGITAL CROP ZOOM: When Zoom is active, extract the center 45% of the frame
+            let sx = 0, sy = 0, sw = fullW, sh = fullH;
+            if (isZoomed) {
+                sw = Math.floor(fullW * 0.45);
+                sh = Math.floor(fullH * 0.45);
+                sx = Math.floor((fullW - sw) / 2);
+                sy = Math.floor((fullH - sh) / 2);
+            }
+
+            const prevW = Math.min(1280, sw);
+            const prevH = Math.min(720, sh);
+
+            // Create TWO separate, independent bitmaps for Left and Right layers
+            const origBitmap = await createImageBitmap(video, sx, sy, sw, sh, { resizeWidth: prevW, resizeHeight: prevH });
+            const upscaledBitmap = await createImageBitmap(video, sx, sy, sw, sh, { resizeWidth: prevW, resizeHeight: prevH });
 
             if (!isOffscreenTransferred) {
                 const upscaled = upscaled_canvas.transferControlToOffscreen();
@@ -287,32 +309,35 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 worker.postMessage({
                     cmd: "init",
                     data: {
-                        bitmap,
+                        bitmap: upscaledBitmap,
                         upscaled,
                         original,
                         resolution: { width: prevW, height: prevH }
                     }
-                }, [bitmap, upscaled, original]);
-            } else {
+                }, [upscaledBitmap, upscaled, original]);
+
+                // Send the matching original bitmap for the left side
                 worker.postMessage({
                     cmd: "updatePreview",
                     data: {
-                        bitmap,
-                        resolution: { width: prevW, height: prevH }
+                        origBitmap,
+                        upscaledBitmap: null,
+                        res: { width: prevW, height: prevH }
                     }
-                }, [bitmap]);
+                }, [origBitmap]);
+            } else {
+                // Send BOTH matching bitmaps to ensure perfect frame and timestamp synchronization
+                worker.postMessage({
+                    cmd: "updatePreview",
+                    data: {
+                        origBitmap,
+                        upscaledBitmap,
+                        res: { width: prevW, height: prevH }
+                    }
+                }, [origBitmap, upscaledBitmap]);
             }
-
-            worker.postMessage({
-                cmd: 'network',
-                data: {
-                    name: "anime4k/cnn-2x-l",
-                    bitmap: await createImageBitmap(video, { resizeWidth: prevW, resizeHeight: prevH }),
-                    weights: weights['large']['an'] // High-Acutance Vector Lines for crisp text
-                }
-            });
         } catch (e) {
-            console.warn("Preview seek note:", e);
+            console.warn("Synchronized preview update note:", e);
         }
 
         Alpine.store('target', 'blob');
