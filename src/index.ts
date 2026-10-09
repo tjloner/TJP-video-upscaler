@@ -131,18 +131,18 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
             makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 24.0e6)
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
         ];
     } else if (shortEdge <= 1200) {
         Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
             makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 24.0e6)
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
         ];
     } else {
         Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
         return [
-            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 24.0e6)
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 22.0e6)
         ];
     }
 }
@@ -184,7 +184,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
-    video.preload = 'auto';
 
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
@@ -195,14 +194,14 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
     };
 
-    video.onloadeddata = async function () {
+    video.onloadedmetadata = async function () {
         const vWidth = video.videoWidth || 640;
         const vHeight = video.videoHeight || 360;
 
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // PRE-ALLOCATE EXACT 2X PIXEL DIMENSIONS ON BOTH CANVASES BEFORE OFFSCREEN HANDOFF
+        // Pre-allocate matching internal resolution on both canvases
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -225,7 +224,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         const dur = video.duration || 10;
         const snapTimes = [
-            Math.min(2.0, Math.max(1.0, dur * 0.15)),
+            Math.min(1.8, Math.max(0.8, dur * 0.15)),
             Math.min(dur * 0.35, dur - 0.5),
             Math.min(dur * 0.55, dur - 0.5),
             Math.min(dur * 0.75, dur - 0.5),
@@ -242,13 +241,20 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Seek past opening black screen directly to 2.0s
+        // Seek past opening black screen directly to 1.8s
         video.currentTime = snapTimes[0];
 
-        // RELIABLE ONSEEKED HANDLER: Checks readyState to ensure pixels are ready
+        // Direct seek listener: guarantees frame is painted immediately
         video.onseeked = async () => {
-            await drawSynchronizedFrame();
+            await drawPreviewFrame();
         };
+
+        // Fallback trigger in case onseeked is delayed
+        setTimeout(() => {
+            if (Alpine.store('state') === 'loading') {
+                drawPreviewFrame();
+            }
+        }, 800);
 
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
@@ -269,7 +275,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function drawSynchronizedFrame() {
+    async function drawPreviewFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -321,7 +327,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Frame draw note:", e);
+            console.warn("Preview capture error:", e);
         }
 
         Alpine.store('target', 'blob');
