@@ -15,8 +15,8 @@ let ctx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Default weights
-const weights = require('./weights/cnn-2x-l-an.json');
+// Default weights: Photographic model for realistic live-action fidelity
+const weights = require('./weights/cnn-2x-l-rl.json');
 
 async function isSupported(): Promise<void> {
   gpu = await WebSR.initWebGPU();
@@ -95,6 +95,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       break;
 
     case 'process':
+      // Forward all dynamic Smart Resolution parameters
       await pipelineProcessor({
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
@@ -103,7 +104,10 @@ self.onmessage = async function (event: MessageEvent<any>) {
         original_canvas,
         resolution,
         preset: event.data.preset,
-        targetScale: event.data.targetScale || 2,
+        targetScale: event.data.targetScale,
+        targetWidth: event.data.targetWidth,
+        targetHeight: event.data.targetHeight,
+        targetBitrate: event.data.targetBitrate,
         getPauseLock: () => pauseLock
       });
       break;

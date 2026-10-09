@@ -81,7 +81,7 @@
                     Your browser or graphics card does not currently support <span x-text="$store.component" class="font-mono bg-red-50 text-red-600 px-2 py-0.5 rounded font-bold"></span>.
                 </p>
                 <p class="text-xs text-gray-400">
-                    Please use the latest version of <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> with hardware acceleration enabled.
+                    Please open this page in the latest version of <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> with hardware acceleration enabled.
                 </p>
             </div>
 
@@ -94,7 +94,7 @@
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Select a video to enhance</h2>
                 <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Best results with 360p, 480p, or 720p MP4 clips. Your media never leaves your device and runs at full GPU speed.
+                    Supports 360p, 480p, 720p, and 1080p clips up to 4K UHD. Your media never leaves your device and runs at full GPU speed.
                 </p>
                 <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base" onclick="chooseFile(this)">
                     Select Video File
@@ -104,8 +104,8 @@
             <!-- Loading State -->
             <div id="loading-panel" class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center" x-show="$store.state === 'loading'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800">Analyzing Video & Initializing GPU</h3>
-                <p class="text-gray-400 text-sm mt-1">Calibrating WebGPU shaders and hardware encoders...</p>
+                <h3 class="text-lg font-bold text-gray-800">Analyzing Video & Calibrating Pipeline</h3>
+                <p class="text-gray-400 text-sm mt-1">Calibrating WebGPU neural compute pipelines and target resolutions...</p>
             </div>
 
             <!-- Error Notification Panel -->
@@ -137,46 +137,44 @@
                 <!-- Video Preview & Settings Screen -->
                 <div id="preview" class="mt-5" x-show="$store.state === 'preview'">
                     
-                    <!-- Notice when source is already 4K -->
-                    <div x-show="$store.isAlready4K" class="p-4 bg-blue-50 border border-blue-200 rounded-xl mb-4 text-xs text-blue-800 leading-relaxed">
-                        <div class="font-bold flex items-center gap-1.5 mb-1 text-blue-900">
-                            <span>ℹ️</span> Native 4K Source Detected (<span x-text="$store.width + '×' + $store.height"></span>)
+                    <!-- Pro Tip Workflow Guidance Banner -->
+                    <div x-show="$store.proTipMessage" class="p-3.5 bg-blue-50 border border-blue-200 rounded-xl mb-4 text-xs text-blue-900 leading-relaxed flex items-start gap-2.5">
+                        <span class="text-base leading-none">💡</span>
+                        <div>
+                            <strong class="font-bold text-blue-950">Workflow Tip: </strong>
+                            <span x-text="$store.proTipMessage"></span>
                         </div>
-                        This video is already at ultra-high resolution. To maintain GPU stability, 4× scaling is disabled. The engine will run <strong>1× AI Deblocking, Artifact Cleaning & Enhancement</strong> at native 4K resolution.
                     </div>
 
-                    <!-- Live Resolution & File Size Badge -->
+                    <!-- Live Resolution & File Size Badges -->
                     <div class="flex flex-wrap items-center justify-between gap-2 p-3 bg-gray-50 rounded-xl text-xs sm:text-sm border border-gray-100 mb-4">
                         <span class="text-gray-500 font-medium truncate max-w-[180px]" x-text="$store.filename"></span>
                         <div class="flex items-center gap-2">
                             <span class="bg-gray-200 text-gray-800 px-2.5 py-0.5 rounded font-mono font-bold text-xs flex items-center gap-1">
-                                <span x-text="($store.width * ($store.scale || 2)) + '×' + ($store.height * ($store.scale || 2))"></span>
-                                <span class="text-[10px] uppercase font-sans text-gray-500 font-semibold" x-text="$store.isAlready4K ? '(4K NATIVE)' : ($store.scale === 4 ? '(4K UHD)' : '(2× HD)')"></span>
+                                <span x-text="($store.availableOptions[$store.selectedOptionIndex]?.targetWidth || $store.width*2) + '×' + ($store.availableOptions[$store.selectedOptionIndex]?.targetHeight || $store.height*2)"></span>
+                                <span class="text-[10px] uppercase font-sans text-gray-500 font-semibold" x-text="'(' + ($store.availableOptions[$store.selectedOptionIndex]?.label || 'HD') + ')'"></span>
                             </span>
                             <span class="bg-red-50 text-[#fd5d5d] px-2 py-0.5 rounded font-mono font-bold text-xs" x-text="$store.size"></span>
                         </div>
                     </div>
 
-                    <!-- Target Resolution Switcher -->
-                    <div class="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100 mb-4">
+                    <!-- Smart Dynamic Resolution Options -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100 mb-4 gap-3">
                         <div>
                             <span class="text-xs sm:text-sm font-bold text-gray-800 block">Target Resolution:</span>
-                            <span class="text-[11px] text-gray-400" x-text="$store.isAlready4K ? 'Locked to 1× Native Enhancement' : 'Choose output scale'"></span>
+                            <span class="text-[11px] text-gray-400">Safe, hardware-calibrated output targets</span>
                         </div>
                         
-                        <div class="flex gap-2 network-option" x-show="!$store.isAlready4K">
-                            <div>
-                                <input type="radio" name="target-scale" id="scale-2x" value="2" onchange="updateScale(2)" checked>
-                                <label for="scale-2x" class="px-3 py-1.5 text-xs font-bold text-[#fd5d5d]">2× HD (Balanced)</label>
-                            </div>
-                            <div>
-                                <input type="radio" name="target-scale" id="scale-4x" value="4" onchange="updateScale(4)">
-                                <label for="scale-4x" class="px-3 py-1.5 text-xs font-bold">4× UHD (4K)</label>
-                            </div>
-                        </div>
-
-                        <div x-show="$store.isAlready4K">
-                            <span class="px-3 py-1.5 text-xs font-bold bg-blue-100 text-blue-800 rounded-lg">1× AI Restoration</span>
+                        <div class="flex flex-wrap gap-2 network-option">
+                            <template x-for="(opt, idx) in $store.availableOptions" :key="idx">
+                                <div>
+                                    <input type="radio" name="res-target" :id="'opt-' + idx" :value="idx" :checked="$store.selectedOptionIndex === idx" @change="selectTargetResolution(idx)">
+                                    <label :for="'opt-' + idx" class="px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-all">
+                                        <span x-text="opt.label"></span>
+                                        <span class="text-[10px] opacity-75 font-normal" x-text="'(' + opt.tag + ')'"></span>
+                                    </label>
+                                </div>
+                            </template>
                         </div>
                     </div>
 
@@ -189,7 +187,7 @@
                             Change Video
                         </button>
                         <button type="button" class="btn tjp-btn-primary flex-1 py-3 rounded-xl font-bold text-base" onclick="initRecording()">
-                            <span x-text="$store.isAlready4K ? 'Start 4K AI Restoration' : 'Start Enhancing Video'"></span>
+                            Start Upscaling Video
                         </button>
                     </div>
                 </div>
@@ -307,12 +305,10 @@
             <!-- Image Preview & Preset Settings Workspace -->
             <div class="tjp-card rounded-2xl p-4 sm:p-6" x-show="$store.imageState === 'preview'">
                 
-                <!-- Original Image Canvas Container -->
                 <div class="relative w-full flex justify-center bg-black/5 rounded-xl overflow-hidden p-2 mb-4 border border-gray-100">
                     <canvas id="img-original-canvas" class="max-h-[380px] max-w-full rounded-lg object-contain"></canvas>
                 </div>
 
-                <!-- Image Dimensions Badge -->
                 <div class="flex flex-wrap items-center justify-between gap-2 p-3 bg-gray-50 rounded-xl text-xs sm:text-sm border border-gray-100 mb-4">
                     <span class="text-gray-500 font-medium truncate max-w-[200px]" x-text="$store.imageDownloadName"></span>
                     <div class="flex items-center gap-2">
@@ -324,7 +320,7 @@
                     </div>
                 </div>
 
-                <!-- 4 Specialized AI Presets (Nero AI Style) -->
+                <!-- 4 Specialized AI Presets -->
                 <div class="mb-4">
                     <label class="text-xs sm:text-sm font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 network-option">
@@ -382,7 +378,6 @@
                 <h4 class="text-lg font-bold text-gray-900 mb-1">Image Upscaling Complete</h4>
                 <p class="text-gray-400 text-xs mb-4">Reconstructed with sub-pixel WebGPU neural shaders.</p>
 
-                <!-- Rendered Image Result -->
                 <div class="relative w-full flex justify-center bg-black/5 rounded-xl overflow-hidden p-2 mb-6 border border-gray-100">
                     <img id="img-upscaled-preview" class="max-h-[420px] max-w-full rounded-lg object-contain shadow-sm" alt="Upscaled Preview">
                 </div>
