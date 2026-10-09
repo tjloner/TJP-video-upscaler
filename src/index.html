@@ -14,11 +14,13 @@
     <link rel="icon" href="logo.svg">
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
-    <!-- Essential ImageCompare Viewer Stylesheet -->
     <link rel="stylesheet" href="./lib/image-compare-viewer.min.css">
 </head>
 
 <body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+
+<!-- Hidden attached video to force Chrome to decode frames reliably -->
+<div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
 
 <div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
     
@@ -68,7 +70,7 @@
         </div>
     </div>
 
-    <!-- Main Workspace Container: 2-COLUMN STUDIO LAYOUT -->
+    <!-- Main Workspace Container -->
     <main class="w-full max-w-5xl px-4 mx-auto">
 
         <!-- ================================================================= -->
@@ -105,7 +107,7 @@
             <div id="loading-panel" class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.state === 'loading'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
                 <h3 class="text-lg font-bold text-gray-800">Calibrating Pipelines</h3>
-                <p class="text-gray-400 text-sm mt-1">Calibrating WebGPU shaders, timeline snapshots, and encoder levels...</p>
+                <p class="text-gray-400 text-sm mt-1">Decoding frames and setting up WebGPU neural shaders...</p>
             </div>
 
             <div id="error-panel" class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'error'">
@@ -122,16 +124,25 @@
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: SYNCHRONIZED COMPARISON VIEWPORT -->
+                    <!-- LEFT COLUMN: PREVIEW VIEWPORT WITH 2X ZOOM BUTTON -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div class="w-full tjp-player-stage">
+                        <div class="w-full tjp-player-stage relative">
                             <!-- ImageCompare Viewport -->
-                            <div id="image-compare-outer">
+                            <div id="image-compare-outer" :style="$store.isZoomed ? 'transform: scale(1.9); transform-origin: center center; transition: transform 0.25s ease;' : 'transform: scale(1.0); transition: transform 0.25s ease;'">
                                 <div id="image-compare">
                                     <canvas id="original"></canvas>
                                     <canvas id="upscaled"></canvas>
                                 </div>
+                            </div>
+
+                            <!-- 2X ZOOM FOCUS BUTTON -->
+                            <div class="absolute bottom-3 right-3 z-30">
+                                <button type="button" @click.stop="toggleZoomMode()" 
+                                        class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95">
+                                    <span>🔍</span>
+                                    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
+                                </button>
                             </div>
                         </div>
 
@@ -172,7 +183,7 @@
                             </div>
                         </div>
 
-                        <!-- Processing Engine Switcher (Clean & Simple) -->
+                        <!-- Processing Engine Switcher -->
                         <div>
                             <div class="flex justify-between items-center mb-2">
                                 <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
