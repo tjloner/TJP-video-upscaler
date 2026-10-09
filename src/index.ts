@@ -66,9 +66,7 @@ async function index(): Promise<void> {
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('proTipMessage', '');
-    Alpine.store('sliderPosition', 50); // Native 0-100% slider position
-    Alpine.store('zoomMode', false);
-    Alpine.store('timelineSnapshots', [] as { time: number; label: string; thumbUrl: string }[]);
+    Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
@@ -125,17 +123,25 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
             makeRes(720, '720p HD', '2× HD', 7.5e6),
             makeRes(1080, '1080p Full HD', '3× Full HD', 11.0e6)
         ];
-    } else if (shortEdge <= 800) {
-        Alpine.store('proTipMessage', '2K Quad HD provides optimal mathematical sharpness for 720p without file bloat.');
+    } 
+    // 720p source -> Directly offers 1080p, 2K, and 4K Ultra HD (2160x3840)!
+    else if (shortEdge <= 800) {
+        Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
         return [
-            makeRes(1080, '1080p Full HD', '1.5× Full HD', 9.5e6),
-            makeRes(1440, '2K Quad HD', '2× Quad HD', 12.5e6)
+            makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
+            makeRes(1440, '2K Quad HD', '2× Quad HD', 16.0e6),
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 24.0e6)
+        ];
+    } else if (shortEdge <= 1200) {
+        Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
+        return [
+            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 16.0e6),
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 24.0e6)
         ];
     } else {
-        Alpine.store('proTipMessage', 'High-resolution source: Applying 2K / 4K sub-pixel edge synthesis.');
+        Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
         return [
-            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 14.0e6),
-            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 20.0e6)
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 24.0e6)
         ];
     }
 }
@@ -183,6 +189,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
     const playerContainer = document.getElementById('player-container') as HTMLElement;
 
+    video.onerror = function () {
+        showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
+    };
+
     video.onloadedmetadata = async function () {
         const vWidth = video.videoWidth || 640;
         const vHeight = video.videoHeight || 360;
@@ -190,63 +200,73 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        const containerW = playerContainer?.clientWidth || 520;
+        // Responsive Aspect Ratio Bounds
+        const containerW = playerContainer?.parentElement?.clientWidth || 520;
         const isPortrait = vHeight > vWidth;
 
         if (isPortrait) {
-            const h = 440;
+            const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
             playerContainer.style.width = `${w}px`;
             playerContainer.style.height = `${h}px`;
         } else {
-            const h = Math.min(380, Math.round(containerW * (vHeight / vWidth)));
+            const h = Math.min(360, Math.round(containerW * (vHeight / vWidth)));
             playerContainer.style.width = '100%';
             playerContainer.style.height = `${h}px`;
         }
 
         playerContainer.style.margin = 'auto';
 
-        // Extract 5 Real Timeline Image Snapshots across video duration
+        // 5 Timeline Snapshots across duration
         const dur = video.duration || 10;
         const snapRatios = [0.02, 0.20, 0.40, 0.65, 0.88];
-        const snapshots: { time: number; label: string; thumbUrl: string }[] = [];
+        const snapshots: { time: number; label: string }[] = [];
 
         for (const r of snapRatios) {
             const t = Math.min(dur * r, Math.max(0, dur - 0.5));
             snapshots.push({
                 time: t,
-                label: formatTime(t),
-                thumbUrl: '' // Populated below
+                label: formatTime(t)
             });
         }
         Alpine.store('timelineSnapshots', snapshots);
 
-        // Capture first frame
+        // Seek past opening fade
         video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
 
+        // RENDER PREVIEW ON SEEK (Without the blocking guard!)
         video.onseeked = async () => {
             await renderInitialPreview();
         };
 
         setTimeout(() => {
-            if (Alpine.store('state') === 'loading') {
-                renderInitialPreview();
-            }
+            renderInitialPreview();
         }, 1400);
 
+        // Real Interactive Timeline Scrubbing Handler
         window.seekToTimestamp = function (timeSec: number) {
             video.currentTime = timeSec;
+        };
+
+        window.togglePause = function () {
+            const currentState = Alpine.store('state');
+            if (currentState === 'processing') {
+                worker.postMessage({ cmd: 'pause' } satisfies WorkerRequestMessage);
+            } else if (currentState === 'paused') {
+                worker.postMessage({ cmd: 'resume' } satisfies WorkerRequestMessage);
+            }
         };
     };
 
     async function renderInitialPreview() {
-        if (Alpine.store('state') === 'preview') return;
-
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
         Alpine.store('availableOptions', options);
-        Alpine.store('selectedOptionIndex', options.length > 1 ? 1 : 0);
+
+        if (!Alpine.store('selectedOptionIndex')) {
+            Alpine.store('selectedOptionIndex', options.length - 1);
+        }
 
         window.selectTargetResolution = function (index: number): void {
             Alpine.store('selectedOptionIndex', index);
@@ -295,11 +315,11 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 data: {
                     name: "anime4k/cnn-2x-l",
                     bitmap: await createImageBitmap(video, { resizeWidth: prevW, resizeHeight: prevH }),
-                    weights: weights['large']['an'] // High-Acutance Vector Lines for crisp text
+                    weights: weights['large']['an'] // High-Acutance Vector Line-Thinning
                 }
             });
         } catch (e) {
-            console.warn("Preview setup handled:", e);
+            console.warn("Preview initial note:", e);
         }
 
         Alpine.store('target', 'blob');
@@ -360,7 +380,7 @@ async function initRecording(): Promise<void> {
     } as any);
 }
 
-// IMAGE UPSCALER
+// IMAGE UPSCALER & UTILITIES
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
         if (window.showOpenFilePicker) {

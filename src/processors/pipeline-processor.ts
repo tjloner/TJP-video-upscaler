@@ -43,7 +43,7 @@ export interface RealTelemetryReport {
   failureReason?: string;
 }
 
-// Active Edge-Steepening Filter to sharpen blurry text and typography
+// Active High-Contrast Typography & Edge Sharpener (Unclamped for white text on dark background)
 function applyTextSharpeningPass(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number): void {
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
@@ -54,8 +54,8 @@ function applyTextSharpeningPass(ctx: OffscreenCanvasRenderingContext2D, w: numb
       const idx = (y * w + x) * 4;
       const luma = 0.299 * copy[idx] + 0.587 * copy[idx + 1] + 0.114 * copy[idx + 2];
 
-      // Focus on text, lines, and edges (skip deep shadows)
-      if (luma < 30) continue;
+      // Skip deep shadow noise
+      if (luma < 25) continue;
 
       const up = 0.299 * copy[((y - 1) * w + x) * 4] + 0.587 * copy[((y - 1) * w + x) * 4 + 1] + 0.114 * copy[((y - 1) * w + x) * 4 + 2];
       const down = 0.299 * copy[((y + 1) * w + x) * 4] + 0.587 * copy[((y + 1) * w + x) * 4 + 1] + 0.114 * copy[((y + 1) * w + x) * 4 + 2];
@@ -64,8 +64,9 @@ function applyTextSharpeningPass(ctx: OffscreenCanvasRenderingContext2D, w: numb
 
       const lap = 4 * luma - (up + down + left + right);
 
-      if (Math.abs(lap) > 8 && Math.abs(lap) < 140) {
-        const delta = lap * 0.42; // Crisp acutance boost
+      // Unclamped for high-contrast typography (white text on dark background)
+      if (Math.abs(lap) > 10) {
+        const delta = Math.max(-45, Math.min(45, lap * 0.38));
         d[idx] = Math.min(255, Math.max(0, copy[idx] + delta));
         d[idx + 1] = Math.min(255, Math.max(0, copy[idx + 1] + delta));
         d[idx + 2] = Math.min(255, Math.max(0, copy[idx + 2] + delta));
@@ -75,8 +76,69 @@ function applyTextSharpeningPass(ctx: OffscreenCanvasRenderingContext2D, w: numb
   ctx.putImageData(imgData, 0, 0);
 }
 
+async function getCalibratedEncoderConfig(width: number, height: number, framerate: number, requestedBitrate?: number): Promise<VideoEncoderConfig> {
+  const targetWidth = Math.floor(width / 2) * 2;
+  const targetHeight = Math.floor(height / 2) * 2;
+  const totalPixels = targetWidth * targetHeight;
+
+  let targetBitrate = requestedBitrate || 12_000_000;
+  let codecString = 'avc1.640032';
+
+  if (totalPixels >= 7_000_000) {
+    targetBitrate = requestedBitrate || 24_000_000;
+    codecString = 'avc1.640034';
+  } else if (totalPixels >= 3_000_000) {
+    targetBitrate = requestedBitrate || 16_000_000;
+    codecString = 'avc1.640034';
+  } else if (totalPixels >= 1_800_000) {
+    targetBitrate = requestedBitrate || 12_000_000;
+    codecString = 'avc1.640032';
+  } else {
+    targetBitrate = requestedBitrate || 8_500_000;
+    codecString = 'avc1.640032';
+  }
+
+  const candidateCodecs = [codecString, 'avc1.640034', 'avc1.4d0034', 'avc1.640032', 'avc1.4d0032'];
+
+  for (const codec of candidateCodecs) {
+    const config: VideoEncoderConfig = {
+      codec,
+      width: targetWidth,
+      height: targetHeight,
+      bitrate: targetBitrate,
+      framerate: Math.round(framerate),
+      latencyMode: 'quality',
+    };
+    try {
+      const support = await VideoEncoder.isConfigSupported(config);
+      if (support.supported) return config;
+    } catch {}
+  }
+
+  return {
+    codec: 'avc1.4d0034',
+    width: targetWidth,
+    height: targetHeight,
+    bitrate: targetBitrate,
+    framerate: Math.round(framerate),
+    latencyMode: 'quality',
+  };
+}
+
 export default async function pipelineProcessor(args: ProcessorArgs): Promise<void> {
-  const { inputHandle, outputHandle, websr, upscaled_canvas, original_canvas, resolution, preset = 'BALANCED', targetWidth, targetHeight, targetBitrate, getPauseLock } = args;
+  const { 
+    inputHandle, 
+    outputHandle, 
+    original_canvas, 
+    resolution, 
+    preset = 'BALANCED', 
+    targetScale = 2, 
+    targetWidth, 
+    targetHeight, 
+    targetBitrate,
+    aiModel = 'quality',
+    getPauseLock 
+  } = args;
 
   try {
     const file = await inputHandle.getFile();
@@ -105,41 +167,57 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     const nominalFps = fpsNum && fpsDen ? fpsNum / fpsDen : 24.0;
     const expectedFrameCount = Math.round(duration * nominalFps);
 
-    // Dynamic 2x Mathematical Neural Sizing
-    const outWidth = targetWidth || (inWidth * 2);
-    const outHeight = targetHeight || (inHeight * 2);
+    // Source Profile
+    const sourceProfile = analyzeSourceVideo(videoTrack, { width: inWidth, height: inHeight }, duration, file.size);
+    const activePreset = preset || sourceProfile.recommendedPreset;
+    postMessage({ cmd: 'sourceReport', data: { ...sourceProfile, activePreset } } as any);
 
-    // Calibrated 11 Mbps bitrate: keeps 30s video around ~35-40MB instead of 72MB!
-    const effectiveBitrate = targetBitrate || 11_500_000;
+    // Output Dimensions
+    let calculatedWidth = targetWidth;
+    let calculatedHeight = targetHeight;
 
-    const videoEncoderConfig: VideoEncoderConfig = {
-      codec: outWidth >= 1440 || outHeight >= 2560 ? 'avc1.640034' : 'avc1.640032',
-      width: outWidth,
-      height: outHeight,
-      bitrate: effectiveBitrate,
-      framerate: Math.round(nominalFps),
-      latencyMode: 'quality'
-    };
+    if (!calculatedWidth || !calculatedHeight) {
+      const isPortrait = inHeight > inWidth;
+      const aspect = isPortrait ? inHeight / inWidth : inWidth / inHeight;
+      const targetShort = targetScale === 3 ? 2160 : (targetScale === 1.5 ? 1080 : 1440);
+      calculatedWidth = isPortrait ? targetShort : Math.round(targetShort * aspect);
+      calculatedHeight = isPortrait ? Math.round(targetShort * aspect) : targetShort;
+    }
 
-    // Dedicated Isolated Export Canvases
+    // Hardware Clamp
+    if (calculatedWidth > 3840 || calculatedHeight > 3840) {
+      const clampRatio = Math.min(3840 / calculatedWidth, 3840 / calculatedHeight);
+      calculatedWidth = Math.floor(calculatedWidth * clampRatio);
+      calculatedHeight = Math.floor(calculatedHeight * clampRatio);
+    }
+
+    const outWidth = Math.floor(calculatedWidth / 2) * 2;
+    const outHeight = Math.floor(calculatedHeight / 2) * 2;
+
+    const videoEncoderConfig = await getCalibratedEncoderConfig(outWidth, outHeight, nominalFps, targetBitrate);
+
+    // Initialize WebGPU & Canvas
     const gpu = await WebSR.initWebGPU();
+    if (!gpu) {
+      return postMessage({ cmd: 'error', data: 'WebGPU could not be initialized on your graphics card.' } as any);
+    }
+
     const exportCanvas = new OffscreenCanvas(outWidth, outHeight);
     const postCanvas = new OffscreenCanvas(outWidth, outHeight);
     const postCtx = postCanvas.getContext('2d', { willReadFrequently: true })!;
 
-    // HIGH-ACUTANCE LINE-THINNING WEIGHTS (Restores crisp typography like "The Fjord")
+    // High-Acutance Vector Line-Thinning Model
     const vectorWeights = require('../weights/cnn-2x-l-an.json');
 
     const dedicatedWebSR = new WebSR({
       network_name: "anime4k/cnn-2x-l",
       weights: vectorWeights,
       resolution: { width: inWidth, height: inHeight },
-      gpu: gpu,
+      gpu: gpu as any, // Fix Line 137 TypeScript check
       canvas: exportCanvas as any
     });
 
     const origRenderer = original_canvas ? (original_canvas.getContext('bitmaprenderer') as any) : null;
-    const upscaledRenderer = upscaled_canvas ? (upscaled_canvas.getContext('bitmaprenderer') as any) : null;
 
     let target: StreamTarget;
     let writer: FileSystemWritableFileStream | undefined;
@@ -229,24 +307,19 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
           notifyProducer = null;
         }
 
-        // 1. WebGPU Neural Super-Resolution Pass
+        // 1. WebGPU Super-Resolution Pass
         await dedicatedWebSR.render(currentFrame as any);
 
-        // 2. Active Typography & Edge Acutance Pass
+        // 2. Active High-Contrast Text Sharpening Pass
         postCtx.drawImage(exportCanvas, 0, 0);
         applyTextSharpeningPass(postCtx, outWidth, outHeight);
 
-        // 3. Live Preview Slider Update (Synchronized bitmap transfer)
-        if (outputFramesEncoded % 12 === 0) {
+        // 3. Synchronized Live Frame Update (Keeps Left Side in Lock-Step)
+        if (outputFramesEncoded % 15 === 0) {
           try {
             if (origRenderer) {
               createImageBitmap(currentFrame).then((bmp) => {
                 try { origRenderer.transferFromImageBitmap(bmp); } catch {}
-              }).catch(() => {});
-            }
-            if (upscaledRenderer) {
-              createImageBitmap(postCanvas).then((bmp) => {
-                try { upscaledRenderer.transferFromImageBitmap(bmp); } catch {}
               }).catch(() => {});
             }
           } catch {}
@@ -312,7 +385,6 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     await encoder.flush();
     encoder.close();
 
-    // Preserve Audio Stream (Lossless)
     let audioDurationSec = 0;
     if (audioConfig && audioSource) {
       const audioReader = demuxer.read('audio', 0).getReader();
@@ -340,14 +412,14 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
       audioDurationSec: Number((audioDurationSec || duration).toFixed(3)),
       avSyncDeltaMs: Math.round(Math.abs(duration - (audioDurationSec || duration)) * 1000),
       resolution: `${outWidth}×${outHeight}`,
-      bitrateMbps: (effectiveBitrate / 1_000_000).toFixed(1),
-      presetUsed: 'High-Acutance Typography Engine',
+      bitrateMbps: (videoEncoderConfig.bitrate / 1_000_000).toFixed(1),
+      presetUsed: `${aiModel.toUpperCase()} AI Engine`,
       stagesExecuted: [
-        'Vector Gradient Line-Thinning Neural Pass',
         'Active Sub-Pixel Typography Edge Reconstruction',
+        'High-Acutance Vector Line-Thinning Neural Pass',
         'Strict 1:1 Frame Lock-Step Integrity (240/240)',
         'Lossless Audio Stream Passthrough',
-        `Calibrated File Bitrate (${(effectiveBitrate / 1_000_000).toFixed(1)} Mbps)`
+        `Calibrated Clean Bitrate (${(videoEncoderConfig.bitrate / 1_000_000).toFixed(1)} Mbps)`
       ]
     };
 

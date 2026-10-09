@@ -15,45 +15,45 @@
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
     <style>
-        /* Smooth Native 0-100% Split Slider Styles */
-        .native-slider-container {
+        .split-slider-box {
             position: relative;
             overflow: hidden;
             user-select: none;
             touch-action: none;
+            background: #000;
         }
-        .canvas-after-layer {
+        .canvas-top-layer {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
         }
-        .slider-divider-line {
+        .slider-bar-line {
             position: absolute;
             top: 0;
             bottom: 0;
             width: 2px;
             background: #ffffff;
-            box-shadow: 0 0 8px rgba(0,0,0,0.5);
+            box-shadow: 0 0 10px rgba(0,0,0,0.6);
             pointer-events: none;
             z-index: 20;
         }
-        .slider-handle-button {
+        .slider-center-button {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 32px;
-            height: 32px;
+            width: 34px;
+            height: 34px;
             background: #ffffff;
             border-radius: 50%;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.4);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 11px;
-            color: #333333;
+            color: #222;
             cursor: ew-resize;
             pointer-events: all;
         }
@@ -71,7 +71,7 @@
     stopDrag() { this.isDragging = false; },
     updateSlider(e) {
         if (!this.isDragging && e.type !== 'click') return;
-        const rect = $refs.playerBox.getBoundingClientRect();
+        const rect = $refs.sliderBox.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const x = clientX - rect.left;
         this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
@@ -99,7 +99,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
             Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
         </p>
 
-        <!-- Pro Status Pill -->
         <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
             <template x-if="isPro">
                 <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
@@ -132,7 +131,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
         </div>
     </div>
 
-    <!-- Main Workspace Container: 2-COLUMN PROFESSIONAL STUDIO LAYOUT -->
+    <!-- Main Workspace Container: 2-COLUMN STUDIO LAYOUT -->
     <main class="w-full max-w-5xl px-4 mx-auto">
 
         <!-- ================================================================= -->
@@ -159,7 +158,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Select a video to enhance</h2>
                 <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Supports 360p, 480p, 720p, and 1080p clips. Runs locally on your GPU with complete privacy.
+                    Supports 360p, 480p, 720p, and 1080p clips up to 4K UHD. Runs locally on your GPU with total privacy.
                 </p>
                 <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base" onclick="chooseFile(this)">
                     Select Video File
@@ -190,34 +189,34 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
                         <!-- Smooth 0-100% Native Comparison Viewport -->
-                        <div x-ref="playerBox" 
+                        <div x-ref="sliderBox" 
                              @mousedown="startDrag($event)" 
                              @touchstart="startDrag($event)"
-                             class="relative w-full bg-black rounded-2xl overflow-hidden shadow-inner flex justify-center items-center min-h-[380px] native-slider-container cursor-ew-resize">
+                             class="relative w-full rounded-2xl overflow-hidden shadow-inner flex justify-center items-center min-h-[380px] split-slider-box cursor-ew-resize">
                             
-                            <!-- Scalable Canvas Container -->
+                            <!-- Scalable Player Box -->
                             <div id="player-container" 
                                  :style="zoomActive ? 'transform: scale(2.2); transform-origin: center center; transition: transform 0.2s ease;' : 'transform: scale(1); transition: transform 0.2s ease;'"
                                  class="relative overflow-hidden w-full h-full flex justify-center items-center">
                                 
-                                <!-- Original Canvas (Left Layer) -->
+                                <!-- Original Canvas (Full Bottom Layer) -->
                                 <canvas id="original" class="w-full h-full object-contain pointer-events-none"></canvas>
                                 
-                                <!-- Upscaled Canvas (Right Layer with Smooth Clip-Path) -->
-                                <div class="canvas-after-layer pointer-events-none" 
+                                <!-- Upscaled Canvas (Top Layer with 0-100% Dynamic Clip-Path) -->
+                                <div class="canvas-top-layer pointer-events-none" 
                                      :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
                                     <canvas id="upscaled" class="w-full h-full object-contain"></canvas>
                                 </div>
                             </div>
 
-                            <!-- Draggable Splitter Divider Line across 100% of Screen -->
-                            <div class="slider-divider-line" :style="'left: ' + sliderPos + '%'">
-                                <div class="slider-handle-button font-bold">
+                            <!-- Single Continuous Split Divider Line Across 100% of Screen -->
+                            <div class="slider-bar-line" :style="'left: ' + sliderPos + '%'">
+                                <div class="slider-center-button font-bold">
                                     <span>◀▶</span>
                                 </div>
                             </div>
 
-                            <!-- Header Badges -->
+                            <!-- Header Labels -->
                             <div class="absolute top-3 left-3 z-30 pointer-events-none">
                                 <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                     Original
@@ -229,7 +228,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </span>
                             </div>
 
-                            <!-- 2.5x Zoom Focus Toggle -->
+                            <!-- 2.5x Zoom Toggle -->
                             <div class="absolute bottom-3 right-3 z-30">
                                 <button type="button" @click.stop="zoomActive = !zoomActive" 
                                         class="bg-white/90 hover:bg-white text-gray-800 text-xs font-bold px-3 py-1.5 rounded-xl shadow-md backdrop-blur-md flex items-center gap-1.5 transition-all">
@@ -239,16 +238,16 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Timeline Scene Snapshots Bar -->
+                        <!-- Real Interactive Timeline Scene Snapshots -->
                         <div class="w-full mt-3.5">
                             <div class="flex items-center justify-between text-[11px] text-gray-400 font-semibold mb-1.5 px-1">
                                 <span>Scene Timeline Snapshots</span>
-                                <span>Click to preview scene</span>
+                                <span>Click timestamp to inspect</span>
                             </div>
                             <div class="flex gap-2 overflow-x-auto pb-1">
                                 <template x-for="(snap, idx) in $store.timelineSnapshots" :key="idx">
                                     <button type="button" @click="seekToTimestamp(snap.time)"
-                                            class="flex-1 py-1 px-2 bg-gray-100 hover:bg-red-50 hover:text-[#fd5d5d] border border-gray-200 rounded-lg text-xs font-mono font-bold transition-all text-center">
+                                            class="flex-1 py-1.5 px-2 bg-gray-100 hover:bg-red-50 hover:text-[#fd5d5d] border border-gray-200 rounded-lg text-xs font-mono font-bold transition-all text-center">
                                         <span x-text="snap.label"></span>
                                     </button>
                                 </template>
@@ -275,14 +274,14 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Target Resolution Selection Pills -->
+                        <!-- Target Resolution Selection Pills (Including 4K UHD for 720p!) -->
                         <div>
                             <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
-                            <div class="grid grid-cols-2 gap-2 network-option">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">
                                 <template x-for="(opt, idx) in $store.availableOptions" :key="idx">
                                     <div>
                                         <input type="radio" name="res-target" :id="'opt-' + idx" :value="idx" :checked="$store.selectedOptionIndex === idx" @change="selectTargetResolution(idx)">
-                                        <label :for="'opt-' + idx" class="py-2 px-3 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
+                                        <label :for="'opt-' + idx" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
                                             <span x-text="opt.label" class="block"></span>
                                             <span class="text-[10px] opacity-75 font-normal block" x-text="opt.tag"></span>
                                         </label>
@@ -333,7 +332,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                 </div>
 
-                <!-- Complete State -->
+                <!-- Complete State: Truthful Quality Audit Card & Download -->
                 <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
                     <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
