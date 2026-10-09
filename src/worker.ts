@@ -43,7 +43,7 @@ async function init(config: InitData): Promise<void> {
       canvas: config.upscaled as any
     });
   } catch (e) {
-    console.warn("WebSR initialization note:", e);
+    console.warn("WebSR init note:", e);
   }
 }
 
@@ -94,7 +94,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
       });
       break;
 
-    // SYNCHRONIZED PREVIEW: Left = Clean Bicubic Smooth, Right = Pure Neural Shader
     case 'updatePreview': {
       const { bitmap } = event.data.data;
       if (!bitmap) break;
@@ -102,7 +101,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const w = bitmap.width;
       const h = bitmap.height;
 
-      // Reconfigure WebSR if resolution changed
+      // Reconfigure WebSR if zoom or resolution changed
       if (!websr || resolution.width !== w || resolution.height !== h) {
         resolution = { width: w, height: h };
         if (gpu && upscaled_canvas) {
@@ -120,26 +119,27 @@ self.onmessage = async function (event: MessageEvent<any>) {
         }
       }
 
-      // 1. Paint LEFT canvas with clean, high-quality resized source frame (no jagged nearest-neighbor)
+      // 1. Paint LEFT canvas with TRUE RAW LOW-RES SOURCE (bilinear interpolation)
+      // This ensures the raw source looks genuinely soft, not artificially sharpened by Chrome
       if (origCtx) {
         try {
-          const origSmooth = await createImageBitmap(bitmap, {
+          const rawLowRes = await createImageBitmap(bitmap, {
             resizeWidth: w * 2,
             resizeHeight: h * 2,
-            resizeQuality: 'high'
+            resizeQuality: 'low'
           });
-          origCtx.transferFromImageBitmap(origSmooth);
+          origCtx.transferFromImageBitmap(rawLowRes);
         } catch (e) {
-          console.warn("Left canvas render error:", e);
+          console.warn("origCtx transfer note:", e);
         }
       }
 
-      // 2. Paint RIGHT canvas with pure neural shader reconstruction
+      // 2. Paint RIGHT canvas with neural super-resolution
       if (websr) {
         try {
           await websr.render(bitmap as any);
         } catch (e) {
-          console.warn("Right canvas render error:", e);
+          console.warn("websr preview render note:", e);
         }
       }
 

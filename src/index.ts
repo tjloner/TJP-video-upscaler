@@ -67,9 +67,10 @@ async function index(): Promise<void> {
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
-    Alpine.store('engineMode', 'deep'); // Default to Deep AI Mode
+    Alpine.store('engineMode', 'deep');
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
+    Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
@@ -132,13 +133,13 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
             makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 24.0e6)
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
         ];
     } else if (shortEdge <= 1200) {
         Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
             makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 24.0e6)
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
         ];
     } else {
         Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
@@ -202,22 +203,23 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        const containerW = playerFrame?.parentElement?.clientWidth || 520;
+        // Aspect ratio sizing
         const isPortrait = vHeight > vWidth;
-
         if (isPortrait) {
             const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
             playerFrame.style.width = `${w}px`;
             playerFrame.style.height = `${h}px`;
         } else {
-            const h = Math.min(360, Math.round(containerW * (vHeight / vWidth)));
+            const maxW = playerFrame.parentElement?.clientWidth || 520;
+            const h = Math.min(360, Math.round(maxW * (vHeight / vWidth)));
             playerFrame.style.width = '100%';
             playerFrame.style.height = `${h}px`;
         }
 
         playerFrame.style.margin = 'auto';
 
+        // 5 Real Timeline Snapshots
         const dur = video.duration || 10;
         const snapRatios = [0.02, 0.20, 0.40, 0.65, 0.88];
         const snapshots: { time: number; label: string }[] = [];
@@ -230,21 +232,26 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             });
         }
         Alpine.store('timelineSnapshots', snapshots);
+        Alpine.store('activeSnapshotTime', snapshots[0].time);
 
-        video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
+        // Initial seek
+        video.currentTime = snapshots[0].time;
 
         video.onseeked = async () => {
-            await drawCurrentSynchronizedFrame();
+            await drawSynchronizedFrame();
         };
 
+        // Interactive Timeline Click
         window.seekToTimestamp = function (timeSec: number) {
+            Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
         };
 
+        // Zoom Focus Toggle
         window.toggleZoomMode = function () {
             const isZoomed = !Alpine.store('isZoomed');
             Alpine.store('isZoomed', isZoomed);
-            drawCurrentSynchronizedFrame();
+            drawSynchronizedFrame();
         };
 
         window.selectEngineMode = function (mode: EngineMode) {
@@ -261,7 +268,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function drawCurrentSynchronizedFrame() {
+    async function drawSynchronizedFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -289,10 +296,11 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             const fullH = video.videoHeight || 360;
             const isZoomed = Alpine.store('isZoomed') as boolean;
 
+            // DIGITAL CROP: When zoomed, focus on the center 50% for high magnification without out-of-bounds errors
             let sx = 0, sy = 0, sw = fullW, sh = fullH;
             if (isZoomed) {
-                sw = Math.floor(fullW * 0.48);
-                sh = Math.floor(fullH * 0.48);
+                sw = Math.floor(fullW * 0.50);
+                sh = Math.floor(fullH * 0.50);
                 sx = Math.floor((fullW - sw) / 2);
                 sy = Math.floor((fullH - sh) / 2);
             }
