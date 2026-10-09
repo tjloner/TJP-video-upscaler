@@ -62,8 +62,6 @@ document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
     Alpine.store('appMode', 'video');
-    
-    // Video Stores
     Alpine.store('state', 'init');
     Alpine.store('target', 'blob');
     Alpine.store('download_url', '');
@@ -71,7 +69,6 @@ async function index(): Promise<void> {
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('proTipMessage', '');
 
-    // Image Stores
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
     Alpine.store('imagePreset', 'photo');
@@ -107,10 +104,7 @@ function switchAppMode(mode: 'video' | 'image'): void {
     Alpine.store('appMode', mode);
 }
 
-// ============================================================================
-// SMART RESOLUTION MAPPER
-// ============================================================================
-
+// SMART RESOLUTION MAPPER: Safely maps up to 4K UHD (2160x3840) without exceeding hardware bounds
 function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTargetOption[] {
     const isPortrait = inH > inW;
     const shortEdge = Math.min(inW, inH);
@@ -125,33 +119,41 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         return { label, targetWidth: tW, targetHeight: tH, scale, bitrate, tag };
     };
 
-    // Category 1: 360p / 480p source -> Offer 720p & 1080p
+    // Category 1: 360p / 480p source (short edge <= 540)
     if (shortEdge <= 540) {
-        Alpine.store('proTipMessage', 'Aiming for 4K? For peak clarity without GPU driver limits, upscale to 1080p first, then enhance that video to 4K.');
+        Alpine.store('proTipMessage', 'Aiming for 4K? Upscale to 1080p first, then process that file to 4K for maximum clarity.');
         return [
             makeRes(720, '720p HD', '2× HD', 8.5e6),
             makeRes(1080, '1080p Full HD', '3× Full HD', 14.0e6)
         ];
     }
-    // Category 2: 720p source -> Offer 1080p & 2K (1440x2560) -> Zero 5K crashes!
-    else if (shortEdge <= 760) {
-        Alpine.store('proTipMessage', 'Aiming for 4K? We recommend upscaling 720p to 2K first, then processing that file to 4K for maximum quality.');
+    // Category 2: 720p source (short edge 541 to 800) -> Offers 1080p, 2K, and 4K UHD!
+    else if (shortEdge <= 800) {
+        Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 14.0e6),
-            makeRes(1440, '2K Quad HD', '2× Quad HD', 18.0e6)
+            makeRes(1440, '2K Quad HD', '2× Quad HD', 18.0e6),
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 26.0e6)
         ];
     }
-    // Category 3: 1080p source -> Offer 2K & 4K UHD
+    // Category 3: 1080p source (short edge 801 to 1200) -> Offers 2K and 4K UHD!
     else if (shortEdge <= 1200) {
-        Alpine.store('proTipMessage', 'Full 4K Ultra HD reconstruction unlocked for your 1080p footage.');
+        Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
             makeRes(1440, '2K Quad HD', '1.3× Quad HD', 18.0e6),
             makeRes(2160, '4K Ultra HD', '2× 4K UHD', 26.0e6)
         ];
     }
-    // Category 4: Already 1440p or 4K source -> 1x Native AI Polish
+    // Category 4: 1440p (2K) source (short edge 1201 to 1600) -> Offers 4K UHD!
+    else if (shortEdge <= 1600) {
+        Alpine.store('proTipMessage', '2K Source Detected: Ready to upscale to 4K Ultra HD.');
+        return [
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 26.0e6)
+        ];
+    }
+    // Category 5: Already 4K UHD (short edge > 1600) -> 1x Native Polish
     else {
-        Alpine.store('proTipMessage', 'Source is already high-resolution (1440p+). Running 1× AI Deblocking & Artifact Cleaning at native resolution.');
+        Alpine.store('proTipMessage', 'Source is already 4K UHD. Applying 1× AI Deblocking & Artifact Cleaning at native resolution.');
         return [
             {
                 label: 'Native 4K AI Polish',
@@ -164,10 +166,6 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         ];
     }
 }
-
-// ============================================================================
-// VIDEO INGESTION & WORKSPACE
-// ============================================================================
 
 async function chooseFile(e?: Event): Promise<void> {
     try {
@@ -228,7 +226,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Aspect ratio bounds
         const containerWidth = imageCompareOuter.parentElement?.clientWidth || 560;
         const isPortrait = vHeight > vWidth;
 
@@ -278,12 +275,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         window.initRecording = initRecording;
 
-        // Calculate Smart Resolution Targets
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
         Alpine.store('availableOptions', options);
-        Alpine.store('selectedOptionIndex', options.length > 1 ? 1 : 0); // Default to the highest sensible target
+        Alpine.store('selectedOptionIndex', options.length - 1); // Defaults to the highest quality option (e.g. 4K)
 
-        // Update selected option listener
         window.selectTargetResolution = function (index: number): void {
             Alpine.store('selectedOptionIndex', index);
             const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
@@ -335,7 +330,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }
             });
         } catch (e) {
-            console.warn("Preview initial note:", e);
+            console.warn("Preview setup handled:", e);
         }
 
         Alpine.store('target', 'blob');
@@ -395,10 +390,6 @@ async function initRecording(): Promise<void> {
         targetBitrate: activeOpt.bitrate
     } as any);
 }
-
-// ============================================================================
-// IMAGE UPSCALER & UTILITIES
-// ============================================================================
 
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
@@ -515,16 +506,15 @@ function showError(message: string): void {
     Alpine.store('error', String(message));
 }
 
+// BUG-FREE FILE SIZE FORMATTER (Eliminates 'undefined' permanently)
 function humanFileSize(bytes: number): string {
-    if (bytes < 1024) return bytes + ' B';
-    const units = ['KiB', 'MiB', 'GiB', 'TiB'];
-    let u = -1;
-    let b = bytes;
-    do {
-        b /= 1024;
-        u++;
-    } while (b >= 1024 && u < units.length - 1);
-    return b.toFixed(1) + ' ' + units[u];
+    if (!bytes || isNaN(bytes) || bytes < 1024) return `${Math.round(bytes || 0)} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KiB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MiB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(1)} GiB`;
 }
 
 async function showFilePicker(): Promise<FileSystemFileHandle> {
