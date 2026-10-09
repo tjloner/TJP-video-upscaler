@@ -515,16 +515,16 @@ function showError(message: string): void {
     Alpine.store('error', String(message));
 }
 
-function humanFileSize(bytes: number, si = false, dp = 1): string {
-    const thresh = si ? 1000 : 1024;
-    if (Math.abs(bytes) < thresh) return bytes + ' B';
+function humanFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
     const units = ['KiB', 'MiB', 'GiB', 'TiB'];
     let u = -1;
-    const r = 10 ** dp;
+    let b = bytes;
     do {
-        bytes /= thresh;
-    } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
-    return bytes.toFixed(dp) + ' ' + units[u];
+        b /= 1024;
+        u++;
+    } while (b >= 1024 && u < units.length - 1);
+    return b.toFixed(1) + ' ' + units[u];
 }
 
 async function showFilePicker(): Promise<FileSystemFileHandle> {
