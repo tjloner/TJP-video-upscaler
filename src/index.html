@@ -17,7 +17,7 @@
     <style>
         .split-slider-box {
             position: relative;
-            background: #050505;
+            background: #000000;
             border-radius: 1rem;
             overflow: hidden;
             display: flex;
@@ -25,8 +25,7 @@
             align-items: center;
             min-height: 440px;
         }
-        /* Lock canvas directly to the video element bounds */
-        .video-canvas-layer {
+        .canvas-frame-layer {
             position: absolute;
             top: 0;
             left: 0;
@@ -34,7 +33,7 @@
             height: 100% !important;
             object-fit: fill;
         }
-        .slider-bar-rule {
+        .center-slider-line {
             position: absolute;
             top: 0;
             bottom: 0;
@@ -42,15 +41,15 @@
             background: #ffffff;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
             pointer-events: none;
-            z-index: 30;
+            z-index: 25;
         }
-        .slider-handle-center {
+        .center-slider-button {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 32px;
-            height: 32px;
+            width: 34px;
+            height: 34px;
             background: #ffffff;
             border-radius: 50%;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
@@ -196,28 +195,28 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <!-- Outer Black Stage -->
                         <div class="w-full split-slider-box flex justify-center items-center">
                             
-                            <!-- Video-Bounded Inner Frame: Dragging tracks THIS element, eliminating black bars! -->
+                            <!-- Video-Bounded Inner Frame: Transforms proportionally without black side borders -->
                             <div x-ref="activeVideoFrame" 
                                  id="player-frame" 
                                  @mousedown="startDrag($event)" 
                                  @touchstart="startDrag($event)"
+                                 :style="$store.isZoomed ? 'transform: scale(1.85); transform-origin: center center; transition: transform 0.2s ease;' : 'transform: scale(1); transition: transform 0.2s ease;'"
                                  class="relative overflow-hidden cursor-ew-resize user-select-none">
                                 
-                                <!-- LEFT LAYER: RAW ORIGINAL (Always shows raw pixels on left) -->
-                                <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
+                                <!-- LEFT LAYER: RAW ORIGINAL (Soft baseline) -->
+                                <canvas id="original" class="canvas-frame-layer pointer-events-none"></canvas>
                                 
-                                <!-- RIGHT LAYER: NEURAL ENHANCED (Revealed on right side via clip-path) -->
-                                <div class="video-canvas-layer pointer-events-none overflow-hidden" 
+                                <!-- RIGHT LAYER: NEURAL ENHANCED (Crisp line-thinning AI) -->
+                                <div class="canvas-frame-layer pointer-events-none overflow-hidden" 
                                      :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                    <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
+                                    <canvas id="upscaled" class="canvas-frame-layer pointer-events-none"></canvas>
                                 </div>
 
                                 <!-- Single Synchronized Splitter Divider Line -->
-                                <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
-                                    <div class="slider-handle-center font-bold">
+                                <div class="center-slider-line" :style="'left: ' + sliderPos + '%'">
+                                    <div class="center-slider-button font-bold">
                                         <span>◀▶</span>
                                     </div>
                                 </div>
@@ -254,7 +253,8 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             <div class="flex gap-2 overflow-x-auto pb-1">
                                 <template x-for="(snap, idx) in $store.timelineSnapshots" :key="idx">
                                     <button type="button" @click="seekToTimestamp(snap.time)"
-                                            class="flex-1 py-1.5 px-2 bg-gray-100 hover:bg-red-50 hover:text-[#fd5d5d] border border-gray-200 rounded-lg text-xs font-mono font-bold transition-all text-center">
+                                            :class="$store.activeSnapshotTime === snap.time ? 'border-[#fd5d5d] bg-red-50 text-[#fd5d5d]' : 'border-gray-200 bg-gray-100 text-gray-700'"
+                                            class="flex-1 py-1.5 px-2 border rounded-lg text-xs font-mono font-bold transition-all text-center">
                                         <span x-text="snap.label"></span>
                                     </button>
                                 </template>
@@ -281,7 +281,35 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Target Resolution Selection Pills -->
+                        <!-- PROCESSING ENGINE SWITCHER -->
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
+                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Turbo Shader'"></span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 network-option">
+                                <div>
+                                    <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
+                                    <label for="eng-fast" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
+                                        <span>⚡ Fast Turbo</span>
+                                        <span class="text-[10px] opacity-75 font-normal block">~12–15 FPS</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="engine-mode" id="eng-deep" value="deep" :checked="$store.engineMode === 'deep'" @change="selectEngineMode('deep')">
+                                    <label for="eng-deep" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all border-[#fd5d5d] text-[#fd5d5d]">
+                                        <span>🧠 Deep AI</span>
+                                        <span class="text-[10px] opacity-75 font-normal block">Sub-Pixel Detail</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                <span x-show="$store.engineMode === 'deep'"><strong>Deep AI:</strong> Uses sub-pixel residual reconstruction with auto-tiling to restore text and fine lines.</span>
+                                <span x-show="$store.engineMode === 'fast'"><strong>Fast Turbo:</strong> Lightweight WebGPU shader designed for quick turnaround on longer clips.</span>
+                            </p>
+                        </div>
+
+                        <!-- Target Resolution Selection Pills (Includes 4K UHD for 720p) -->
                         <div>
                             <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
                             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">

@@ -1,7 +1,7 @@
 import Alpine from 'alpinejs';
 import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
-import type { WorkerRequestMessage } from './types/worker-messages';
+import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -44,6 +44,7 @@ declare global {
         chooseFile: (e?: Event) => Promise<void>;
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
+        selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
         toggleZoomMode: () => void;
         togglePause: () => void;
@@ -66,8 +67,10 @@ async function index(): Promise<void> {
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
+    Alpine.store('engineMode', 'deep');
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
+    Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
@@ -200,10 +203,15 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Aspect Ratio Sizing directly on player-frame
+        // Explicitly set 2x internal resolution on BOTH canvases before transferring
+        upscaled_canvas.width = vWidth * 2;
+        upscaled_canvas.height = vHeight * 2;
+        original_canvas.width = vWidth * 2;
+        original_canvas.height = vHeight * 2;
+
         const isPortrait = vHeight > vWidth;
         if (isPortrait) {
-            const h = 440;
+            const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
             playerFrame.style.width = `${w}px`;
             playerFrame.style.height = `${h}px`;
@@ -214,14 +222,15 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             playerFrame.style.height = `${h}px`;
         }
 
-        // Setup 5 Snapshot timestamps past any opening fade
+        playerFrame.style.margin = 'auto';
+
         const dur = video.duration || 10;
         const snapTimes = [
-            Math.min(1.5, dur * 0.1),
-            Math.min(dur * 0.25, dur - 0.5),
-            Math.min(dur * 0.45, dur - 0.5),
-            Math.min(dur * 0.65, dur - 0.5),
-            Math.min(dur * 0.85, dur - 0.5)
+            Math.min(1.8, Math.max(0.8, dur * 0.15)),
+            Math.min(dur * 0.35, dur - 0.5),
+            Math.min(dur * 0.55, dur - 0.5),
+            Math.min(dur * 0.75, dur - 0.5),
+            Math.min(dur * 0.90, dur - 0.5)
         ];
 
         const snapshots = [
@@ -232,24 +241,26 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             { time: snapTimes[4], label: formatTime(snapTimes[4]) }
         ];
         Alpine.store('timelineSnapshots', snapshots);
+        Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Default to the first clear frame past black fade-in (e.g. 1.5s)
+        // Seek past opening fade-in to the clear frame
         video.currentTime = snapTimes[0];
 
         video.onseeked = async () => {
             await drawSynchronizedFrame();
         };
 
-        // Seeking to any timestamp immediately re-renders both canvases!
         window.seekToTimestamp = function (timeSec: number) {
+            Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
         };
 
-        // Digital Zoom Mode
         window.toggleZoomMode = function () {
-            const isZoomed = !Alpine.store('isZoomed');
-            Alpine.store('isZoomed', isZoomed);
-            drawSynchronizedFrame();
+            Alpine.store('isZoomed', !Alpine.store('isZoomed'));
+        };
+
+        window.selectEngineMode = function (mode: EngineMode) {
+            Alpine.store('engineMode', mode);
         };
 
         window.togglePause = function () {
@@ -286,26 +297,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('size', humanFileSize(estimated_size));
 
         try {
-            const fullW = video.videoWidth || 640;
-            const fullH = video.videoHeight || 360;
-            const isZoomed = Alpine.store('isZoomed') as boolean;
+            const w = video.videoWidth || 640;
+            const h = video.videoHeight || 360;
 
-            // DIGITAL ZOOM: Crop center 50%
-            let sx = 0, sy = 0, sw = fullW, sh = fullH;
-            if (isZoomed) {
-                sw = Math.floor(fullW * 0.50);
-                sh = Math.floor(fullH * 0.50);
-                sx = Math.floor((fullW - sw) / 2);
-                sy = Math.floor((fullH - sh) / 2);
-            }
-
-            const targetW = Math.min(1280, sw);
-            const targetH = Math.min(720, sh);
-
-            const frameBitmap = await createImageBitmap(video, sx, sy, sw, sh, {
-                resizeWidth: targetW,
-                resizeHeight: targetH
-            });
+            const frameBitmap = await createImageBitmap(video);
 
             if (!isOffscreenTransferred) {
                 const upscaled = upscaled_canvas.transferControlToOffscreen();
@@ -318,7 +313,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                         bitmap: frameBitmap,
                         upscaled,
                         original,
-                        resolution: { width: targetW, height: targetH }
+                        resolution: { width: w, height: h }
                     }
                 }, [frameBitmap, upscaled, original]);
             } else {
@@ -367,6 +362,7 @@ async function initRecording(): Promise<void> {
     const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
+    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -387,7 +383,8 @@ async function initRecording(): Promise<void> {
         targetWidth: activeOpt.targetWidth,
         targetHeight: activeOpt.targetHeight,
         targetScale: activeOpt.scale,
-        targetBitrate: activeOpt.bitrate
+        targetBitrate: activeOpt.bitrate,
+        engineMode: engineMode
     } as any);
 }
 
