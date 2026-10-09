@@ -206,7 +206,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // PRE-ALLOCATE EXACT 2X RESOLUTION ON BOTH CANVASES BEFORE OFFSCREEN TRANSFER
+        // Explicitly set 2x dimensions on both canvases before offscreen handoff
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -228,12 +228,11 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         imageCompareOuter.style.margin = 'auto';
         imageCompareOuter.style.position = 'relative';
 
-        // Mount native ImageCompare viewer cleanly
+        // Mount the native ImageCompare viewer
         if (!imageCompareInstance) {
             imageCompareInstance = new ImageCompare(imageCompareEl).mount();
         }
 
-        // Calculate 5 Timeline Snapshots past opening fade
         const dur = video.duration || 10;
         const snapTimes = [
             Math.min(1.8, Math.max(0.8, dur * 0.15)),
@@ -253,14 +252,13 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Seek past opening black screen directly to first valid frame
-        video.currentTime = snapTimes[0];
-
-        // RELIABLE ONSEEKED WITH 80MS RASTERIZATION TICK (Guarantees zero black screen on load)
+        // ATTACH ONSEEKED BEFORE SETTING CURRENTTIME SO IT NEVER MISSES THE EVENT
         video.onseeked = async () => {
-            await new Promise(resolve => setTimeout(resolve, 80));
-            await drawSynchronizedFrame();
+            await captureAndSendPreviewFrame();
         };
+
+        // Seek past opening black screen directly to first valid scene
+        video.currentTime = snapTimes[0];
 
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
@@ -281,7 +279,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function drawSynchronizedFrame() {
+    async function captureAndSendPreviewFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -333,7 +331,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Frame capture note:", e);
+            console.warn("Frame draw note:", e);
         }
 
         Alpine.store('target', 'blob');

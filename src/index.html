@@ -13,32 +13,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="icon" href="logo.svg">
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
+
+    <!-- Essential ImageCompare Viewer Stylesheet -->
+    <link rel="stylesheet" href="./lib/image-compare-viewer.min.css">
 </head>
 
-<body x-data="{ 
-    licenseModal: false, 
-    isPro: false, 
-    licenseKey: '',
-    sliderPos: 50, 
-    isDragging: false,
-    startDrag(e) { this.isDragging = true; this.updateSlider(e); },
-    stopDrag() { this.isDragging = false; },
-    updateSlider(e) {
-        if (!this.isDragging && e.type !== 'click') return;
-        const frame = $refs.activeVideoFrame;
-        if (!frame) return;
-        const rect = frame.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
-        this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
-    }
-}" 
-@mouseup="stopDrag()" 
-@touchend="stopDrag()" 
-@mousemove="updateSlider($event)" 
-@touchmove="updateSlider($event)"
-style="display: none;" 
-class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+<body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
 
 <div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
     
@@ -142,44 +122,15 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
+                    <!-- LEFT COLUMN: SYNCHRONIZED COMPARISON VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div class="w-full tjp-viewport-stage">
-                            
-                            <!-- Video-Bounded Inner Frame: Dragging tracks THIS element exactly -->
-                            <div x-ref="activeVideoFrame" 
-                                 id="player-frame" 
-                                 @mousedown="startDrag($event)" 
-                                 @touchstart="startDrag($event)"
-                                 class="relative overflow-hidden cursor-ew-resize">
-                                
-                                <!-- LEFT LAYER: RAW ORIGINAL (Soft baseline) -->
-                                <canvas id="original" class="tjp-canvas-layer"></canvas>
-                                
-                                <!-- RIGHT LAYER: NEURAL ENHANCED (Revealed via clip-path) -->
-                                <div class="tjp-canvas-layer overflow-hidden" 
-                                     :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                    <canvas id="upscaled" class="tjp-canvas-layer"></canvas>
-                                </div>
-
-                                <!-- Center Split Divider Line -->
-                                <div class="tjp-slider-divider" :style="'left: ' + sliderPos + '%'">
-                                    <div class="tjp-slider-handle font-bold">
-                                        <span>◀▶</span>
-                                    </div>
-                                </div>
-
-                                <!-- Synchronized Header Badges -->
-                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Original (Raw)
-                                    </span>
-                                </div>
-                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Enhanced (AI)
-                                    </span>
+                        <div class="w-full tjp-player-stage">
+                            <!-- ImageCompare Viewport -->
+                            <div id="image-compare-outer">
+                                <div id="image-compare">
+                                    <canvas id="original"></canvas>
+                                    <canvas id="upscaled"></canvas>
                                 </div>
                             </div>
                         </div>
@@ -203,7 +154,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                     </div>
 
-                    <!-- RIGHT COLUMN: STUDIO CONTROL DECK (5 Cols) -->
+                    <!-- RIGHT COLUMN: STUDIO CONTROL DECK -->
                     <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
                         
                         <!-- File Info & Dimension Mapping -->
@@ -221,49 +172,35 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- PROCESSING ENGINE SWITCHER WITH HOVER TOOLTIPS -->
+                        <!-- Processing Engine Switcher (Clean & Simple) -->
                         <div>
                             <div class="flex justify-between items-center mb-2">
                                 <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
-                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Turbo Shader'"></span>
+                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Fast Turbo'"></span>
                             </div>
                             <div class="grid grid-cols-2 gap-2 network-option">
                                 <div>
                                     <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
-                                    <label for="eng-fast" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all relative">
-                                        <div class="flex items-center justify-center gap-1.5">
-                                            <span>⚡ Fast Turbo</span>
-                                            <div class="tjp-tooltip-container" @click.stop>
-                                                <span class="tjp-tooltip-trigger">!</span>
-                                                <div class="tjp-tooltip-popover">
-                                                    <strong>⚡ Fast Turbo Engine:</strong><br>
-                                                    Runs lightweight WebGPU shaders at ~12–15 FPS. Ideal for quick exports and long clips.
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~12–15 FPS</span>
+                                    <label for="eng-fast" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
+                                        <span>⚡ Fast Turbo</span>
+                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~12–15 FPS (Fast)</span>
                                     </label>
                                 </div>
                                 <div>
                                     <input type="radio" name="engine-mode" id="eng-deep" value="deep" :checked="$store.engineMode === 'deep'" @change="selectEngineMode('deep')">
-                                    <label for="eng-deep" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all border-[#fd5d5d] text-[#fd5d5d] relative">
-                                        <div class="flex items-center justify-center gap-1.5">
-                                            <span>🧠 Deep AI</span>
-                                            <div class="tjp-tooltip-container" @click.stop>
-                                                <span class="tjp-tooltip-trigger">!</span>
-                                                <div class="tjp-tooltip-popover">
-                                                    <strong>🧠 Deep AI Clarity Engine:</strong><br>
-                                                    Runs sub-pixel residual reconstruction with auto-tiling to recover fine text and contours.
-                                                </div>
-                                            </div>
-                                        </div>
+                                    <label for="eng-deep" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all border-[#fd5d5d] text-[#fd5d5d]">
+                                        <span>🧠 Deep AI</span>
                                         <span class="text-[10px] opacity-75 font-normal block mt-0.5">Sub-Pixel Detail</span>
                                     </label>
                                 </div>
                             </div>
+                            <p class="text-[11px] text-gray-400 mt-2 leading-relaxed">
+                                <span x-show="$store.engineMode === 'deep'"><strong>Deep AI:</strong> Uses sub-pixel residual reconstruction to restore text and fine contours.</span>
+                                <span x-show="$store.engineMode === 'fast'"><strong>Fast Turbo:</strong> Lightweight WebGPU shader designed for quick turnaround on longer video clips.</span>
+                            </p>
                         </div>
 
-                        <!-- Target Resolution Selection Pills (Includes 4K UHD for 720p) -->
+                        <!-- Target Resolution Selection Pills -->
                         <div>
                             <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
                             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">
