@@ -17,7 +17,7 @@
     <style>
         .split-slider-box {
             position: relative;
-            background: #000000;
+            background: #050505;
             border-radius: 1rem;
             overflow: hidden;
             display: flex;
@@ -25,7 +25,6 @@
             align-items: center;
             min-height: 440px;
         }
-        /* Unified CSS class for 100% pixel-perfect layer alignment */
         .video-canvas-layer {
             position: absolute;
             top: 0;
@@ -196,25 +195,27 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
+                        <!-- Outer Black Box -->
                         <div class="w-full split-slider-box flex justify-center items-center">
                             
-                            <!-- Video-Bounded Inner Frame: Dragging tracks THIS element with 100% matched bounds -->
+                            <!-- Video Player Frame: Zooms seamlessly via CSS with no buffer distortion -->
                             <div x-ref="activeVideoFrame" 
                                  id="player-frame" 
                                  @mousedown="startDrag($event)" 
                                  @touchstart="startDrag($event)"
+                                 :style="$store.isZoomed ? 'transform: scale(2.0); transform-origin: center center; transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);' : 'transform: scale(1); transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);'"
                                  class="relative overflow-hidden cursor-ew-resize user-select-none">
                                 
-                                <!-- LEFT LAYER: RAW ORIGINAL (Soft baseline) -->
+                                <!-- LEFT LAYER: RAW ORIGINAL -->
                                 <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
                                 
-                                <!-- RIGHT LAYER: NEURAL ENHANCED (Crisp line-thinning AI) -->
+                                <!-- RIGHT LAYER: NEURAL ENHANCED (Revealed on right side via clip-path) -->
                                 <div class="video-canvas-layer pointer-events-none overflow-hidden" 
                                      :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
                                     <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
                                 </div>
 
-                                <!-- Single Synchronized Splitter Divider Line -->
+                                <!-- Center Split Divider Line -->
                                 <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
                                     <div class="slider-handle-center font-bold">
                                         <span>◀▶</span>
@@ -232,6 +233,15 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                         Enhanced (AI)
                                     </span>
                                 </div>
+                            </div>
+
+                            <!-- 2x Zoom Focus Toggle (Fixed to outer corner so it remains accessible while zoomed) -->
+                            <div class="absolute bottom-3 right-3 z-30 pointer-events-auto">
+                                <button type="button" @click.stop="toggleZoomMode()" 
+                                        class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95">
+                                    <span>🔍</span>
+                                    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
+                                </button>
                             </div>
                         </div>
 
@@ -272,7 +282,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- PROCESSING ENGINE SWITCHER -->
+                        <!-- Processing Engine Switcher -->
                         <div>
                             <div class="flex justify-between items-center mb-2">
                                 <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
@@ -358,7 +368,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                 </div>
 
-                <!-- Complete State: Truthful Quality Audit Card & Download -->
+                <!-- Complete State -->
                 <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
                     <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
