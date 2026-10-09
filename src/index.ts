@@ -123,19 +123,17 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
             makeRes(720, '720p HD', '2× HD', 7.5e6),
             makeRes(1080, '1080p Full HD', '3× Full HD', 11.0e6)
         ];
-    } 
-    // 720p source -> Directly offers 1080p, 2K, and 4K Ultra HD (2160x3840)!
-    else if (shortEdge <= 800) {
+    } else if (shortEdge <= 800) {
         Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
-            makeRes(1440, '2K Quad HD', '2× Quad HD', 16.0e6),
+            makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
             makeRes(2160, '4K Ultra HD', '3× 4K UHD', 24.0e6)
         ];
     } else if (shortEdge <= 1200) {
         Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
-            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 16.0e6),
+            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
             makeRes(2160, '4K Ultra HD', '2× 4K UHD', 24.0e6)
         ];
     } else {
@@ -217,7 +215,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         playerContainer.style.margin = 'auto';
 
-        // 5 Timeline Snapshots across duration
+        // 5 Real Timeline Snapshots
         const dur = video.duration || 10;
         const snapRatios = [0.02, 0.20, 0.40, 0.65, 0.88];
         const snapshots: { time: number; label: string }[] = [];
@@ -231,19 +229,14 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         }
         Alpine.store('timelineSnapshots', snapshots);
 
-        // Seek past opening fade
+        // Seek past opening fade-in
         video.currentTime = Math.min(2.5, Math.max(0.5, dur * 0.15));
 
-        // RENDER PREVIEW ON SEEK (Without the blocking guard!)
+        // ACTIVE SEEK LISTENER: Re-renders the frame whenever user clicks a timeline snapshot!
         video.onseeked = async () => {
-            await renderInitialPreview();
+            await renderFrameAtCurrentTime();
         };
 
-        setTimeout(() => {
-            renderInitialPreview();
-        }, 1400);
-
-        // Real Interactive Timeline Scrubbing Handler
         window.seekToTimestamp = function (timeSec: number) {
             video.currentTime = timeSec;
         };
@@ -258,7 +251,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function renderInitialPreview() {
+    async function renderFrameAtCurrentTime() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -315,11 +308,11 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 data: {
                     name: "anime4k/cnn-2x-l",
                     bitmap: await createImageBitmap(video, { resizeWidth: prevW, resizeHeight: prevH }),
-                    weights: weights['large']['an'] // High-Acutance Vector Line-Thinning
+                    weights: weights['large']['an'] // High-Acutance Vector Lines for crisp text
                 }
             });
         } catch (e) {
-            console.warn("Preview initial note:", e);
+            console.warn("Preview seek note:", e);
         }
 
         Alpine.store('target', 'blob');
@@ -380,7 +373,7 @@ async function initRecording(): Promise<void> {
     } as any);
 }
 
-// IMAGE UPSCALER & UTILITIES
+// IMAGE UPSCALER
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
         if (window.showOpenFilePicker) {
