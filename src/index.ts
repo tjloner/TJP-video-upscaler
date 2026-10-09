@@ -1,5 +1,4 @@
 import Alpine from 'alpinejs';
-import ImageCompare from './lib/image-compare-viewer.min';
 import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
 import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
@@ -7,7 +6,6 @@ import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import "./index.css";
-import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
@@ -20,7 +18,6 @@ let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
-let imageCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let imageDownloadName = "enhanced-image.png";
@@ -49,7 +46,6 @@ declare global {
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
-        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -135,13 +131,13 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
             makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 24.0e6)
         ];
     } else if (shortEdge <= 1200) {
         Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
             makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
-            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 24.0e6)
         ];
     } else {
         Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
@@ -188,12 +184,12 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
+    video.preload = 'auto';
 
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
 
-    const imageCompareOuter = document.getElementById('image-compare-outer') as HTMLElement;
-    const imageCompareEl = document.getElementById('image-compare') as HTMLElement;
+    const playerFrame = document.getElementById('player-frame') as HTMLElement;
 
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
@@ -206,7 +202,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Pre-allocate 2x buffers
+        // PRE-ALLOCATE EXACT 2X PIXEL DIMENSIONS ON BOTH CANVASES BEFORE OFFSCREEN HANDOFF
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -216,25 +212,20 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         if (isPortrait) {
             const h = 420;
             const w = Math.round(h * (vWidth / vHeight));
-            imageCompareOuter.style.width = `${w}px`;
-            imageCompareOuter.style.height = `${h}px`;
+            playerFrame.style.width = `${w}px`;
+            playerFrame.style.height = `${h}px`;
         } else {
-            const maxW = imageCompareOuter.parentElement?.clientWidth || 520;
+            const maxW = playerFrame.parentElement?.clientWidth || 520;
             const h = Math.min(360, Math.round(maxW * (vHeight / vWidth)));
-            imageCompareOuter.style.width = '100%';
-            imageCompareOuter.style.height = `${h}px`;
+            playerFrame.style.width = `${maxW}px`;
+            playerFrame.style.height = `${h}px`;
         }
 
-        imageCompareOuter.style.margin = 'auto';
-        imageCompareOuter.style.position = 'relative';
-
-        if (!imageCompareInstance) {
-            imageCompareInstance = new ImageCompare(imageCompareEl).mount();
-        }
+        playerFrame.style.margin = 'auto';
 
         const dur = video.duration || 10;
         const snapTimes = [
-            Math.min(1.8, Math.max(0.8, dur * 0.15)),
+            Math.min(2.0, Math.max(1.0, dur * 0.15)),
             Math.min(dur * 0.35, dur - 0.5),
             Math.min(dur * 0.55, dur - 0.5),
             Math.min(dur * 0.75, dur - 0.5),
@@ -251,29 +242,17 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // Seek past opening black screen
+        // Seek past opening black screen directly to 2.0s
         video.currentTime = snapTimes[0];
 
-        const onFrameDecoded = async () => {
-            await captureAndSendPreviewFrame();
+        // RELIABLE ONSEEKED HANDLER: Checks readyState to ensure pixels are ready
+        video.onseeked = async () => {
+            await drawSynchronizedFrame();
         };
-
-        const vAny = video as any;
-        if (typeof vAny.requestVideoFrameCallback === 'function') {
-            vAny.requestVideoFrameCallback(onFrameDecoded);
-        } else {
-            vAny.onseeked = onFrameDecoded;
-        }
 
         window.seekToTimestamp = function (timeSec: number) {
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
-            const vidObj = video as any;
-            if (typeof vidObj.requestVideoFrameCallback === 'function') {
-                vidObj.requestVideoFrameCallback(captureAndSendPreviewFrame);
-            } else {
-                vidObj.onseeked = captureAndSendPreviewFrame;
-            }
         };
 
         window.selectEngineMode = function (mode: EngineMode) {
@@ -290,7 +269,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function captureAndSendPreviewFrame() {
+    async function drawSynchronizedFrame() {
         window.initRecording = initRecording;
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
@@ -342,7 +321,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Preview capture note:", e);
+            console.warn("Frame draw note:", e);
         }
 
         Alpine.store('target', 'blob');

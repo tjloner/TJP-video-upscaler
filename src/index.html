@@ -15,7 +15,7 @@
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
     <style>
-        #image-compare-outer {
+        .split-slider-box {
             position: relative;
             background: #000000;
             border-radius: 1rem;
@@ -23,21 +23,73 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            min-height: 440px;
         }
-        #image-compare {
-            width: 100% !important;
-            height: 100% !important;
-        }
-        #image-compare canvas {
+        /* Unified CSS class for 100% pixel-perfect layer alignment */
+        .video-canvas-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100% !important;
             height: 100% !important;
             object-fit: fill;
         }
+        .slider-bar-rule {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+            pointer-events: none;
+            z-index: 30;
+        }
+        .slider-handle-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 34px;
+            height: 34px;
+            background: #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #111;
+            cursor: ew-resize;
+            pointer-events: all;
+            user-select: none;
+        }
     </style>
 </head>
 
-<body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+<body x-data="{ 
+    licenseModal: false, 
+    isPro: false, 
+    licenseKey: '',
+    sliderPos: 50, 
+    isDragging: false,
+    startDrag(e) { this.isDragging = true; this.updateSlider(e); },
+    stopDrag() { this.isDragging = false; },
+    updateSlider(e) {
+        if (!this.isDragging && e.type !== 'click') return;
+        const frame = $refs.activeVideoFrame;
+        if (!frame) return;
+        const rect = frame.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const x = clientX - rect.left;
+        this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
+    }
+}" 
+@mouseup="stopDrag()" 
+@touchend="stopDrag()" 
+@mousemove="updateSlider($event)" 
+@touchmove="updateSlider($event)"
+style="display: none;" 
+class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
 
 <div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
     
@@ -54,6 +106,7 @@
             Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
         </p>
 
+        <!-- Pro Status Pill -->
         <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
             <template x-if="isPro">
                 <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
@@ -140,13 +193,45 @@
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: PIXEL-PERFECT SPLIT SLIDER VIEWPORT -->
+                    <!-- LEFT COLUMN: PIXEL-PERFECT SYNCHRONIZED COMPARISON VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div id="image-compare-outer">
-                            <div id="image-compare">
-                                <canvas id="original"></canvas>
-                                <canvas id="upscaled"></canvas>
+                        <div class="w-full split-slider-box flex justify-center items-center">
+                            
+                            <!-- Video-Bounded Inner Frame: Dragging tracks THIS element with 100% matched bounds -->
+                            <div x-ref="activeVideoFrame" 
+                                 id="player-frame" 
+                                 @mousedown="startDrag($event)" 
+                                 @touchstart="startDrag($event)"
+                                 class="relative overflow-hidden cursor-ew-resize user-select-none">
+                                
+                                <!-- LEFT LAYER: RAW ORIGINAL (Soft baseline) -->
+                                <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
+                                
+                                <!-- RIGHT LAYER: NEURAL ENHANCED (Crisp line-thinning AI) -->
+                                <div class="video-canvas-layer pointer-events-none overflow-hidden" 
+                                     :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
+                                    <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
+                                </div>
+
+                                <!-- Single Synchronized Splitter Divider Line -->
+                                <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
+                                    <div class="slider-handle-center font-bold">
+                                        <span>◀▶</span>
+                                    </div>
+                                </div>
+
+                                <!-- Synchronized Header Badges -->
+                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
+                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Original (Raw)
+                                    </span>
+                                </div>
+                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
+                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Enhanced (AI)
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
