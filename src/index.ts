@@ -47,6 +47,9 @@ declare global {
         chooseFile: (e?: Event) => Promise<void>;
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
+        selectAIModelTier: (tier: string) => void;
+        seekToTimestamp: (timeSeconds: number) => void;
+        toggleZoom: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -68,6 +71,9 @@ async function index(): Promise<void> {
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('proTipMessage', '');
+    Alpine.store('selectedAIModel', 'quality');
+    Alpine.store('isZoomed', false);
+    Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
@@ -104,7 +110,6 @@ function switchAppMode(mode: 'video' | 'image'): void {
     Alpine.store('appMode', mode);
 }
 
-// SMART RESOLUTION MAPPER: Safely maps up to 4K UHD (2160x3840) without exceeding hardware bounds
 function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTargetOption[] {
     const isPortrait = inH > inW;
     const shortEdge = Math.min(inW, inH);
@@ -119,40 +124,31 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
         return { label, targetWidth: tW, targetHeight: tH, scale, bitrate, tag };
     };
 
-    // Category 1: 360p / 480p source (short edge <= 540)
     if (shortEdge <= 540) {
         Alpine.store('proTipMessage', 'Aiming for 4K? Upscale to 1080p first, then process that file to 4K for maximum clarity.');
         return [
-            makeRes(720, '720p HD', '2× HD', 8.5e6),
-            makeRes(1080, '1080p Full HD', '3× Full HD', 14.0e6)
+            makeRes(720, '720p HD', '2× HD', 7.5e6),
+            makeRes(1080, '1080p Full HD', '3× Full HD', 11.0e6)
         ];
-    }
-    // Category 2: 720p source (short edge 541 to 800) -> Offers 1080p, 2K, and 4K UHD!
-    else if (shortEdge <= 800) {
+    } else if (shortEdge <= 800) {
         Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
         return [
-            makeRes(1080, '1080p Full HD', '1.5× Full HD', 14.0e6),
-            makeRes(1440, '2K Quad HD', '2× Quad HD', 18.0e6),
-            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 26.0e6)
+            makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
+            makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
         ];
-    }
-    // Category 3: 1080p source (short edge 801 to 1200) -> Offers 2K and 4K UHD!
-    else if (shortEdge <= 1200) {
+    } else if (shortEdge <= 1200) {
         Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
-            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 18.0e6),
-            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 26.0e6)
+            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
         ];
-    }
-    // Category 4: 1440p (2K) source (short edge 1201 to 1600) -> Offers 4K UHD!
-    else if (shortEdge <= 1600) {
+    } else if (shortEdge <= 1600) {
         Alpine.store('proTipMessage', '2K Source Detected: Ready to upscale to 4K Ultra HD.');
         return [
-            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 26.0e6)
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 22.0e6)
         ];
-    }
-    // Category 5: Already 4K UHD (short edge > 1600) -> 1x Native Polish
-    else {
+    } else {
         Alpine.store('proTipMessage', 'Source is already 4K UHD. Applying 1× AI Deblocking & Artifact Cleaning at native resolution.');
         return [
             {
@@ -160,7 +156,7 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
                 targetWidth: inW,
                 targetHeight: inH,
                 scale: 1,
-                bitrate: 22.0e6,
+                bitrate: 18.0e6,
                 tag: '1× Native'
             }
         ];
@@ -226,22 +222,34 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
+        // Aspect ratio bounds
         const containerWidth = imageCompareOuter.parentElement?.clientWidth || 560;
         const isPortrait = vHeight > vWidth;
 
         if (isPortrait) {
-            const targetHeight = 420;
+            const targetHeight = 440;
             const targetWidth = Math.round(targetHeight * (vWidth / vHeight));
             imageCompareOuter.style.width = `${targetWidth}px`;
             imageCompareOuter.style.height = `${targetHeight}px`;
         } else {
-            const targetHeight = Math.min(360, Math.round(containerWidth * (vHeight / vWidth)));
+            const targetHeight = Math.min(380, Math.round(containerWidth * (vHeight / vWidth)));
             imageCompareOuter.style.width = '100%';
             imageCompareOuter.style.height = `${targetHeight}px`;
         }
 
         imageCompareOuter.style.margin = 'auto';
         imageCompareOuter.style.position = 'relative';
+
+        // 5 Timeline Snapshots across duration
+        const dur = video.duration;
+        const snapshots = [
+            { time: 0, label: '0:00' },
+            { time: Math.min(dur * 0.2, dur - 0.5), label: formatTime(dur * 0.2) },
+            { time: Math.min(dur * 0.4, dur - 0.5), label: formatTime(dur * 0.4) },
+            { time: Math.min(dur * 0.65, dur - 0.5), label: formatTime(dur * 0.65) },
+            { time: Math.min(dur * 0.85, dur - 0.5), label: formatTime(dur * 0.85) }
+        ];
+        Alpine.store('timelineSnapshots', snapshots);
 
         if (imageCompareInstance && typeof imageCompareInstance.destroy === 'function') {
             try { imageCompareInstance.destroy(); } catch {}
@@ -252,7 +260,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             await renderInitialPreview();
         };
 
-        video.currentTime = Math.min(2.5, Math.max(0.5, video.duration * 0.25));
+        // Seek past opening fade
+        video.currentTime = Math.min(2.0, Math.max(0.5, dur * 0.15));
 
         setTimeout(() => {
             if (Alpine.store('state') === 'loading') {
@@ -268,6 +277,21 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 worker.postMessage({ cmd: 'resume' } satisfies WorkerRequestMessage);
             }
         };
+
+        window.seekToTimestamp = function (timeSec: number) {
+            video.currentTime = timeSec;
+        };
+
+        window.toggleZoom = function () {
+            const currentZoom = Alpine.store('isZoomed') as boolean;
+            Alpine.store('isZoomed', !currentZoom);
+            const slider = document.getElementById('image-compare');
+            if (slider) {
+                slider.style.transform = !currentZoom ? 'scale(2.2)' : 'scale(1.0)';
+                slider.style.transformOrigin = 'center center';
+                slider.style.transition = 'transform 0.25s ease-in-out';
+            }
+        };
     };
 
     async function renderInitialPreview() {
@@ -277,7 +301,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
         Alpine.store('availableOptions', options);
-        Alpine.store('selectedOptionIndex', options.length - 1); // Defaults to the highest quality option (e.g. 4K)
+        Alpine.store('selectedOptionIndex', options.length > 1 ? 1 : 0);
 
         window.selectTargetResolution = function (index: number): void {
             Alpine.store('selectedOptionIndex', index);
@@ -286,6 +310,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
                 Alpine.store('size', humanFileSize(estimated_size));
             }
+        };
+
+        window.selectAIModelTier = function (tier: string): void {
+            Alpine.store('selectedAIModel', tier);
         };
 
         const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
@@ -326,7 +354,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 data: {
                     name: "anime4k/cnn-2x-l",
                     bitmap: await createImageBitmap(video, { resizeWidth: prevW, resizeHeight: prevH }),
-                    weights: weights['large']['rl']
+                    weights: weights['large']['an'] // High-Acutance Vector Lines
                 }
             });
         } catch (e) {
@@ -367,6 +395,7 @@ async function initRecording(): Promise<void> {
     const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
+    const aiModel = (Alpine.store('selectedAIModel') as string) || 'quality';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -387,10 +416,12 @@ async function initRecording(): Promise<void> {
         targetWidth: activeOpt.targetWidth,
         targetHeight: activeOpt.targetHeight,
         targetScale: activeOpt.scale,
-        targetBitrate: activeOpt.bitrate
+        targetBitrate: activeOpt.bitrate,
+        aiModel
     } as any);
 }
 
+// IMAGE UPSCALER & UTILITIES
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
         if (window.showOpenFilePicker) {
@@ -506,7 +537,13 @@ function showError(message: string): void {
     Alpine.store('error', String(message));
 }
 
-// BUG-FREE FILE SIZE FORMATTER (Eliminates 'undefined' permanently)
+function formatTime(secs: number): string {
+    const s = Math.floor(secs);
+    const m = Math.floor(s / 60);
+    const remS = s % 60;
+    return `${m}:${remS < 10 ? '0' : ''}${remS}`;
+}
+
 function humanFileSize(bytes: number): string {
     if (!bytes || isNaN(bytes) || bytes < 1024) return `${Math.round(bytes || 0)} B`;
     const kb = bytes / 1024;
