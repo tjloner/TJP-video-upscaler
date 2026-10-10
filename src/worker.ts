@@ -2,11 +2,13 @@ import WebSR from '@websr/websr';
 import pipelineProcessor from './processors/pipeline-processor';
 import type {
   InitData,
-  Resolution
+  Resolution,
+  VideoProfilePreset
 } from './types/worker-messages';
 
 let gpu: any | false;
 let websr: WebSR | null = null;
+let currentProfile: VideoProfilePreset = 'photo';
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
 let resolution: Resolution = { width: 640, height: 360 };
@@ -14,7 +16,16 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-const weights = require('./weights/cnn-2x-l-an.json');
+function resolvePreviewWeights(profile: VideoProfilePreset = 'photo'): any {
+  if (profile === 'photo' || profile === 'portrait') {
+    try {
+      return require('./weights/cnn-2x-l-rl.json');
+    } catch {
+      return require('./weights/cnn-2x-l-an.json');
+    }
+  }
+  return require('./weights/cnn-2x-l-an.json');
+}
 
 async function isSupported(): Promise<void> {
   gpu = await WebSR.initWebGPU();
@@ -24,27 +35,29 @@ async function isSupported(): Promise<void> {
   } as any);
 }
 
-// CRITICAL FIX: Render the initial frame immediately on init so the player is never black!
 async function init(config: InitData): Promise<void> {
   if (!gpu) {
     gpu = await WebSR.initWebGPU();
   }
 
   resolution = config.resolution || { width: 640, height: 360 };
+  currentProfile = config.profile || 'photo';
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
   origCtx = original_canvas.getContext('bitmaprenderer');
 
+  const modelWeights = resolvePreviewWeights(currentProfile);
+
   try {
     websr = new WebSR({
       network_name: "anime4k/cnn-2x-l",
-      weights,
+      weights: modelWeights,
       resolution: resolution,
       gpu: gpu as any,
       canvas: config.upscaled as any
     });
 
-    // 1. Paint Left Canvas (Original Raw Frame)
+    // 1. Paint Left Canvas (Original Raw Low-Res Frame)
     if (origCtx && config.bitmap) {
       const origBitmap = await createImageBitmap(config.bitmap, {
         resizeWidth: resolution.width * 2,
@@ -54,12 +67,12 @@ async function init(config: InitData): Promise<void> {
       origCtx.transferFromImageBitmap(origBitmap);
     }
 
-    // 2. Paint Right Canvas (Neural WebGPU Upscale)
+    // 2. Paint Right Canvas (Adaptive WebGPU Neural Upscale)
     if (websr && config.bitmap) {
       await websr.render(config.bitmap as any);
     }
   } catch (e) {
-    console.warn("Worker init render error:", e);
+    console.warn("Worker init render note:", e);
   }
 }
 
@@ -105,31 +118,36 @@ self.onmessage = async function (event: MessageEvent<any>) {
         targetHeight: event.data.targetHeight,
         targetBitrate: event.data.targetBitrate,
         engineMode: event.data.engineMode || 'deep',
+        profile: event.data.profile || currentProfile,
         aiModel: event.data.aiModel,
         getPauseLock: () => pauseLock
       });
       break;
 
     case 'updatePreview': {
-      const { bitmap } = event.data.data;
+      const { bitmap, profile } = event.data.data;
       if (!bitmap) break;
 
       const w = bitmap.width;
       const h = bitmap.height;
+      const nextProfile = profile || currentProfile;
 
-      if (!websr || resolution.width !== w || resolution.height !== h) {
+      const needsReinit = !websr || resolution.width !== w || resolution.height !== h || currentProfile !== nextProfile;
+
+      if (needsReinit) {
         resolution = { width: w, height: h };
+        currentProfile = nextProfile;
         if (gpu && upscaled_canvas) {
           try {
             websr = new WebSR({
               network_name: "anime4k/cnn-2x-l",
-              weights,
+              weights: resolvePreviewWeights(currentProfile),
               resolution: { width: w, height: h },
               gpu: gpu as any,
               canvas: upscaled_canvas as any
             });
           } catch (err) {
-            console.warn("WebSR reconfig note:", err);
+            console.warn("WebSR preview profile reconfig note:", err);
           }
         }
       }
@@ -143,7 +161,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
           });
           origCtx.transferFromImageBitmap(rawLowRes);
         } catch (e) {
-          console.warn("Left canvas draw error:", e);
+          console.warn("Left canvas transfer note:", e);
         }
       }
 
@@ -151,7 +169,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
         try {
           await websr.render(bitmap as any);
         } catch (e) {
-          console.warn("Right canvas draw error:", e);
+          console.warn("Right canvas neural pass note:", e);
         }
       }
 

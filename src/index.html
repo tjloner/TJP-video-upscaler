@@ -299,6 +299,37 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
+                        <!-- Video Enhancement Profile Selection -->
+                        <div>
+                            <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
+                            <div class="grid grid-cols-2 gap-2 network-option">
+                                <div>
+                                    <input type="radio" name="video-profile" id="vp-photo" value="photo" 
+                                           :checked="$store.videoProfile === 'photo'"
+                                           @change="selectVideoProfile('photo')">
+                                    <label for="vp-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="video-profile" id="vp-portrait" value="portrait" 
+                                           :checked="$store.videoProfile === 'portrait'"
+                                           @change="selectVideoProfile('portrait')">
+                                    <label for="vp-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="video-profile" id="vp-anime" value="anime" 
+                                           :checked="$store.videoProfile === 'anime'"
+                                           @change="selectVideoProfile('anime')">
+                                    <label for="vp-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="video-profile" id="vp-text" value="text" 
+                                           :checked="$store.videoProfile === 'text'"
+                                           @change="selectVideoProfile('text')">
+                                    <label for="vp-text" class="block text-center text-xs py-2 cursor-pointer border-[#fd5d5d] text-[#fd5d5d]">📝 Text & Logo</label>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Processing Engine Switcher -->
                         <div>
                             <div class="flex justify-between items-center mb-2">
@@ -310,7 +341,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                     <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
                                     <label for="eng-fast" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
                                         <span>⚡ Fast Turbo</span>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~12–15 FPS (Fast)</span>
+                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~15–20 FPS (Fast)</span>
                                     </label>
                                 </div>
                                 <div>

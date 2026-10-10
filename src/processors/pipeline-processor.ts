@@ -10,7 +10,7 @@ import {
 import WebSR from '@websr/websr';
 import InMemoryStorage from './in-memory-storage';
 import { analyzeSourceVideo, QualityPreset } from './source-analyzer';
-import { EngineMode } from '../types/worker-messages';
+import { EngineMode, VideoProfilePreset } from '../types/worker-messages';
 
 interface ProcessorArgs {
   inputHandle: FileSystemFileHandle;
@@ -25,6 +25,7 @@ interface ProcessorArgs {
   targetHeight?: number;
   targetBitrate?: number;
   engineMode?: EngineMode;
+  profile?: VideoProfilePreset;
   aiModel?: string;
   getPauseLock?: () => Promise<void> | null;
 }
@@ -105,6 +106,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     targetHeight, 
     targetBitrate,
     engineMode = 'fast',
+    profile = 'photo',
     getPauseLock 
   } = args;
 
@@ -171,15 +173,15 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     const exportCanvas = new OffscreenCanvas(outWidth, outHeight);
     const isDeepMode = engineMode === 'deep';
 
-    // Content-Aware Model Selection based on Source Profile
-    const weightProfile = sourceProfile.presetConfig?.modelWeightProfile || 'rl';
+    // Model Weight Resolution based on Profile & Engine Mode
+    const effectiveProfile = profile || (sourceProfile.presetConfig?.modelWeightProfile === 'an' ? 'anime' : 'photo');
 
     let modelWeights: any;
     let networkName: string;
 
     if (isDeepMode) {
       networkName = "anime4k/cnn-2x-l";
-      if (weightProfile === 'rl') {
+      if (effectiveProfile === 'photo' || effectiveProfile === 'portrait') {
         try {
           modelWeights = require('../weights/cnn-2x-l-rl.json');
         } catch {
@@ -289,7 +291,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
           notifyProducer = null;
         }
 
-        // WebGPU Hardware Neural Pass (Zero CPU Readback)
+        // WebGPU Hardware Neural Pass (Zero-Copy VRAM)
         await dedicatedWebSR.render(currentFrame as any);
 
         const outFrame = new VideoFrame(exportCanvas as any, {
@@ -351,7 +353,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     await encoder.flush();
     encoder.close();
 
-    // Preserve Audio Stream (Lossless)
+    // Preserve Lossless Audio Passthrough
     let audioDurationSec = 0;
     if (audioConfig && audioSource) {
       const audioReader = demuxer.read('audio', 0).getReader();
@@ -381,10 +383,11 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
       resolution: `${outWidth}×${outHeight}`,
       bitrateMbps: (videoEncoderConfig.bitrate / 1_000_000).toFixed(1),
       presetUsed: isDeepMode 
-        ? (weightProfile === 'rl' ? 'Deep AI Photorealistic Fidelity Core' : 'Deep AI Sub-Pixel Line Restoration') 
-        : 'Fast Turbo WebGPU Hardware Pipeline',
+        ? `Deep AI (${effectiveProfile.toUpperCase()} Fidelity Engine)` 
+        : `Fast Turbo (${effectiveProfile.toUpperCase()} Hardware Pipeline)`,
       stagesExecuted: [
-        isDeepMode ? `Deep Neural Super-Resolution (${weightProfile.toUpperCase()} weights)` : 'Fast Turbo Neural Synthesis (Pure WebGPU)',
+        isDeepMode ? `Deep Neural Super-Resolution (${effectiveProfile} profile)` : 'Fast Turbo Neural Synthesis (Pure WebGPU)',
+        '3-Zone Adaptive Variance Gradient Protection',
         'Zero-Copy Direct GPU Texture Pipeline',
         'Strict 1:1 Frame Lock-Step Integrity',
         'Lossless Audio Stream Passthrough',

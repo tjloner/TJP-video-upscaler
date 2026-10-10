@@ -1,6 +1,6 @@
 import Alpine from 'alpinejs';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
-import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
+import type { WorkerRequestMessage, EngineMode, VideoProfilePreset } from './types/worker-messages';
 
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -38,6 +38,7 @@ declare global {
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
+        selectVideoProfile: (profile: VideoProfilePreset) => void;
         seekToTimestamp: (timeSeconds: number) => void;
         toggleZoomMode: () => void;
         togglePause: () => void;
@@ -62,6 +63,7 @@ async function index(): Promise<void> {
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
     Alpine.store('engineMode', 'deep');
+    Alpine.store('videoProfile', 'photo' as VideoProfilePreset);
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
@@ -223,7 +225,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Explicitly size #player-frame to preserve video aspect ratio and avoid 0-pixel collapse
         const playerFrame = document.getElementById('player-frame');
         const isPortrait = vHeight > vWidth;
         const targetBoxHeight = 420;
@@ -278,10 +279,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             await captureAndSendPreviewFrame();
         };
 
-        // Skip potential initial black frame
         video.currentTime = snapTimes[0];
 
-        // Backup render kick
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
                 await captureAndSendPreviewFrame();
@@ -296,6 +295,11 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         window.selectEngineMode = function (mode: EngineMode) {
             Alpine.store('engineMode', mode);
+        };
+
+        window.selectVideoProfile = async function (profile: VideoProfilePreset) {
+            Alpine.store('videoProfile', profile);
+            await captureAndSendPreviewFrame();
         };
 
         window.togglePause = function () {
@@ -339,6 +343,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         try {
             const w = video.videoWidth || 640;
             const h = video.videoHeight || 360;
+            const currentProfile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
 
             const frameBitmap = await createImageBitmap(video);
 
@@ -353,14 +358,16 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                         bitmap: frameBitmap,
                         upscaled,
                         original,
-                        resolution: { width: w, height: h }
+                        resolution: { width: w, height: h },
+                        profile: currentProfile
                     }
                 }, [frameBitmap, upscaled, original]);
             } else {
                 worker.postMessage({
                     cmd: "updatePreview",
                     data: {
-                        bitmap: frameBitmap
+                        bitmap: frameBitmap,
+                        profile: currentProfile
                     }
                 }, [frameBitmap]);
             }
@@ -400,6 +407,7 @@ async function initRecording(): Promise<void> {
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
     const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
+    const profile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -421,7 +429,8 @@ async function initRecording(): Promise<void> {
         targetHeight: activeOpt.targetHeight,
         targetScale: activeOpt.scale,
         targetBitrate: activeOpt.bitrate,
-        engineMode: engineMode
+        engineMode: engineMode,
+        profile: profile
     } as any);
 }
 

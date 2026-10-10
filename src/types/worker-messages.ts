@@ -9,6 +9,7 @@ export interface Resolution {
 }
 
 export type EngineMode = 'fast' | 'deep';
+export type VideoProfilePreset = 'photo' | 'portrait' | 'anime' | 'text';
 
 export interface RealTelemetryReport {
   status: 'PASSED' | 'FAILED';
@@ -31,6 +32,7 @@ export interface InitData {
   upscaled: OffscreenCanvas;
   original: OffscreenCanvas;
   resolution: Resolution;
+  profile?: VideoProfilePreset;
 }
 
 export interface NetworkData {
@@ -42,6 +44,7 @@ export interface NetworkData {
 export interface UpdatePreviewData {
   bitmap: ImageBitmap;
   resolution?: Resolution;
+  profile?: VideoProfilePreset;
 }
 
 // Messages sent FROM main thread TO worker
@@ -59,6 +62,7 @@ export type WorkerRequestMessage =
       targetHeight?: number;
       targetBitrate?: number;
       engineMode?: EngineMode;
+      profile?: VideoProfilePreset;
       preset?: string;
       aiModel?: string;
     }
