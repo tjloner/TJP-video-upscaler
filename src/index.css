@@ -17,7 +17,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Primary and Secondary Buttons */
 .tjp-btn-primary {
   background-color: var(--primary-color) !important;
   border-color: var(--primary-color) !important;
@@ -51,7 +50,6 @@ body {
   box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04), 0 4px 10px -3px rgba(0, 0, 0, 0.02);
 }
 
-/* Radio button pills */
 .network-option input[type="radio"] {
   display: none;
 }
@@ -71,12 +69,11 @@ body {
   box-shadow: 0 0 0 1px var(--primary-color);
 }
 
-/* Progress bar accent */
 .progress-bar-tjp {
   background: linear-gradient(90deg, #fd5d5d, #ff8282) !important;
 }
 
-/* Player Stage */
+/* Video Stage Viewport */
 .tjp-player-stage {
   background: #000000;
   border-radius: 1rem;
@@ -91,6 +88,9 @@ body {
 #image-compare-outer {
   position: relative;
   overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 #image-compare {
@@ -103,4 +103,25 @@ body {
   height: 100% !important;
   object-fit: fill;
   display: block;
+}
+
+/* Image Upscaler Comparison Viewer */
+#image-result-compare-outer {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: 480px;
+}
+
+#image-result-compare {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#image-result-compare img {
+  max-height: 480px;
+  width: auto;
+  object-fit: contain;
 }

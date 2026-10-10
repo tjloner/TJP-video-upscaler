@@ -21,8 +21,10 @@ let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
 let imageCompareInstance: any = null;
+let imageResultCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
+let originalImageSrcUrl: string = '';
 let imageDownloadName = "enhanced-image.png";
 
 export interface ResolutionTargetOption {
@@ -49,6 +51,7 @@ declare global {
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
+        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -69,8 +72,9 @@ async function index(): Promise<void> {
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
-    Alpine.store('engineMode', 'fast'); // Default to Fast Turbo for high FPS
+    Alpine.store('engineMode', 'deep');
     Alpine.store('proTipMessage', '');
+    Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
@@ -80,6 +84,7 @@ async function index(): Promise<void> {
     Alpine.store('imageWidth', 0);
     Alpine.store('imageHeight', 0);
     Alpine.store('imageDownloadUrl', '');
+    Alpine.store('originalImageUrl', '');
     Alpine.store('imageDownloadName', '');
     Alpine.store('imageError', '');
 
@@ -94,10 +99,14 @@ async function index(): Promise<void> {
 
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
+    // Bind Globals immediately
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
     window.startImageUpscale = startImageUpscale;
+    window.toggleZoomMode = () => {
+        Alpine.store('isZoomed', !Alpine.store('isZoomed'));
+    };
 }
 
 function showUnsupported(text: string): void {
@@ -211,7 +220,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Pre-allocate 2x dimensions before offscreen transfer
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -256,25 +264,24 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // RELIABLE ONSEEKED HANDLER: Bound before setting currentTime
+        // ATTACH ONSEEKED BEFORE SETTING CURRENTTIME
         video.onseeked = async () => {
             await new Promise(r => setTimeout(r, 60));
             await captureAndSendPreviewFrame();
         };
 
-        // Seek past opening black screen directly to first active scene
+        // Seek directly past black intro frame
         video.currentTime = snapTimes[0];
 
-        // Safe Fallback Trigger: Guarantees frame renders even if seek is instant
-        setTimeout(() => {
+        // Backup render kick
+        setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
-                captureAndSendPreviewFrame();
+                await captureAndSendPreviewFrame();
             }
-        }, 600);
+        }, 800);
 
-        // Timeline Scrubbing: Guarded against interrupting active processing
         window.seekToTimestamp = function (timeSec: number) {
-            if (Alpine.store('state') === 'processing') return; // Do not interrupt processing!
+            if (Alpine.store('state') === 'processing') return;
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
         };
@@ -294,7 +301,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     };
 
     async function captureAndSendPreviewFrame() {
-        // Only set preview state if not currently processing a video!
         if (Alpine.store('state') !== 'processing') {
             window.initRecording = initRecording;
 
@@ -351,7 +357,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Frame draw note:", e);
+            console.warn("Frame capture error:", e);
         }
     }
 }
@@ -385,7 +391,7 @@ async function initRecording(): Promise<void> {
     const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
-    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'fast';
+    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -411,7 +417,10 @@ async function initRecording(): Promise<void> {
     } as any);
 }
 
-// IMAGE UPSCALER
+// ============================================================================
+// IMAGE UPSCALER (WITH INTERACTIVE BEFORE/AFTER SLIDER)
+// ============================================================================
+
 async function chooseImageFile(e?: Event): Promise<void> {
     try {
         if (window.showOpenFilePicker) {
@@ -452,6 +461,9 @@ async function setupImageFile(file: File): Promise<void> {
 
     try {
         activeImageBitmap = await createImageBitmap(file);
+        originalImageSrcUrl = URL.createObjectURL(file);
+        Alpine.store('originalImageUrl', originalImageSrcUrl);
+
         Alpine.store('imageWidth', activeImageBitmap.width);
         Alpine.store('imageHeight', activeImageBitmap.height);
         Alpine.store('imageScale', 2);
@@ -493,12 +505,19 @@ async function startImageUpscale(): Promise<void> {
         const downloadUrl = URL.createObjectURL(upscaledBlob);
         Alpine.store('imageDownloadUrl', downloadUrl);
 
-        const imgUpscaledPreview = document.getElementById('img-upscaled-preview') as HTMLImageElement;
-        if (imgUpscaledPreview) {
-            imgUpscaledPreview.src = downloadUrl;
-        }
-
         Alpine.store('imageState', 'complete');
+
+        // Mount Interactive Before/After Comparison for Image
+        setTimeout(() => {
+            const imgCompareEl = document.getElementById('image-result-compare');
+            if (imgCompareEl) {
+                if (imageResultCompareInstance && typeof imageResultCompareInstance.destroy === 'function') {
+                    try { imageResultCompareInstance.destroy(); } catch {}
+                }
+                imageResultCompareInstance = new ImageCompare(imgCompareEl).mount();
+            }
+        }, 150);
+
     } catch (err: any) {
         Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed.');
         Alpine.store('imageState', 'error');

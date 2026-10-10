@@ -24,6 +24,7 @@ async function isSupported(): Promise<void> {
   } as any);
 }
 
+// CRITICAL FIX: Render the initial frame immediately on init so the player is never black!
 async function init(config: InitData): Promise<void> {
   if (!gpu) {
     gpu = await WebSR.initWebGPU();
@@ -42,8 +43,23 @@ async function init(config: InitData): Promise<void> {
       gpu: gpu as any,
       canvas: config.upscaled as any
     });
+
+    // 1. Paint Left Canvas (Original Raw Frame)
+    if (origCtx && config.bitmap) {
+      const origBitmap = await createImageBitmap(config.bitmap, {
+        resizeWidth: resolution.width * 2,
+        resizeHeight: resolution.height * 2,
+        resizeQuality: 'low'
+      });
+      origCtx.transferFromImageBitmap(origBitmap);
+    }
+
+    // 2. Paint Right Canvas (Neural WebGPU Upscale)
+    if (websr && config.bitmap) {
+      await websr.render(config.bitmap as any);
+    }
   } catch (e) {
-    console.warn("WebSR init note:", e);
+    console.warn("Worker init render error:", e);
   }
 }
 
@@ -101,7 +117,6 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const w = bitmap.width;
       const h = bitmap.height;
 
-      // Reconfigure WebSR if zoom or resolution changed
       if (!websr || resolution.width !== w || resolution.height !== h) {
         resolution = { width: w, height: h };
         if (gpu && upscaled_canvas) {
@@ -114,13 +129,11 @@ self.onmessage = async function (event: MessageEvent<any>) {
               canvas: upscaled_canvas as any
             });
           } catch (err) {
-            console.warn("WebSR reconfig:", err);
+            console.warn("WebSR reconfig note:", err);
           }
         }
       }
 
-      // 1. Paint LEFT canvas with TRUE RAW LOW-RES SOURCE (bilinear interpolation)
-      // This ensures the raw source looks genuinely soft, not artificially sharpened by Chrome
       if (origCtx) {
         try {
           const rawLowRes = await createImageBitmap(bitmap, {
@@ -130,16 +143,15 @@ self.onmessage = async function (event: MessageEvent<any>) {
           });
           origCtx.transferFromImageBitmap(rawLowRes);
         } catch (e) {
-          console.warn("origCtx transfer note:", e);
+          console.warn("Left canvas draw error:", e);
         }
       }
 
-      // 2. Paint RIGHT canvas with neural super-resolution
       if (websr) {
         try {
           await websr.render(bitmap as any);
         } catch (e) {
-          console.warn("websr preview render note:", e);
+          console.warn("Right canvas draw error:", e);
         }
       }
 

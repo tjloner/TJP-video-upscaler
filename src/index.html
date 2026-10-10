@@ -19,7 +19,6 @@
 
 <body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
 
-<!-- Hidden attached video to force Chrome to decode frames reliably -->
 <div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
 
 <div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
@@ -70,7 +69,7 @@
         </div>
     </div>
 
-    <!-- Main Workspace Container -->
+    <!-- Main Workspace Container: 2-COLUMN STUDIO LAYOUT -->
     <main class="w-full max-w-5xl px-4 mx-auto">
 
         <!-- ================================================================= -->
@@ -124,21 +123,21 @@
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: PREVIEW VIEWPORT WITH 2X ZOOM BUTTON -->
+                    <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
                         <div class="w-full tjp-player-stage relative">
-                            <!-- ImageCompare Viewport -->
-                            <div id="image-compare-outer" :style="$store.isZoomed ? 'transform: scale(1.9); transform-origin: center center; transition: transform 0.25s ease;' : 'transform: scale(1.0); transition: transform 0.25s ease;'">
+                            <!-- ImageCompare Viewport (Smooth Zoom transform without buffer crash) -->
+                            <div id="image-compare-outer" :style="$store.isZoomed ? 'transform: scale(1.85); transform-origin: center center; transition: transform 0.25s ease;' : 'transform: scale(1.0); transition: transform 0.25s ease;'">
                                 <div id="image-compare">
                                     <canvas id="original"></canvas>
                                     <canvas id="upscaled"></canvas>
                                 </div>
                             </div>
 
-                            <!-- 2X ZOOM FOCUS BUTTON -->
-                            <div class="absolute bottom-3 right-3 z-30">
-                                <button type="button" @click.stop="toggleZoomMode()" 
+                            <!-- 2X ZOOM BUTTON -->
+                            <div class="absolute bottom-3 right-3 z-30 pointer-events-auto">
+                                <button type="button" onclick="toggleZoomMode()" 
                                         class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95">
                                     <span>🔍</span>
                                     <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
@@ -205,10 +204,6 @@
                                     </label>
                                 </div>
                             </div>
-                            <p class="text-[11px] text-gray-400 mt-2 leading-relaxed">
-                                <span x-show="$store.engineMode === 'deep'"><strong>Deep AI:</strong> Uses sub-pixel residual reconstruction to restore text and fine contours.</span>
-                                <span x-show="$store.engineMode === 'fast'"><strong>Fast Turbo:</strong> Lightweight WebGPU shader designed for quick turnaround on longer video clips.</span>
-                            </p>
                         </div>
 
                         <!-- Target Resolution Selection Pills -->
@@ -316,7 +311,7 @@
         </div>
 
         <!-- ================================================================= -->
-        <!-- TAB 2: IMAGE UPSCALER WORKSPACE                                  -->
+        <!-- TAB 2: IMAGE UPSCALER (WITH BEFORE/AFTER SLIDER)                  -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'image'">
             <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
@@ -349,6 +344,7 @@
                 </button>
             </div>
 
+            <!-- Image Preview Workspace -->
             <div class="tjp-card rounded-2xl p-4 sm:p-6 max-w-2xl mx-auto" x-show="$store.imageState === 'preview'">
                 <div class="relative w-full flex justify-center bg-black/5 rounded-xl overflow-hidden p-2 mb-4 border border-gray-100">
                     <canvas id="img-original-canvas" class="max-h-[380px] max-w-full rounded-lg object-contain"></canvas>
@@ -414,13 +410,20 @@
                 </div>
             </div>
 
-            <div class="tjp-card rounded-2xl p-6 text-center max-w-xl mx-auto" x-show="$store.imageState === 'complete'">
+            <!-- Image Complete Screen: WITH BEFORE/AFTER SPLIT SLIDER -->
+            <div class="tjp-card rounded-2xl p-6 text-center max-w-2xl mx-auto" x-show="$store.imageState === 'complete'">
                 <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mx-auto mb-2">✓</div>
                 <h4 class="text-lg font-bold text-gray-900 mb-1">Image Upscaling Complete</h4>
-                <p class="text-gray-400 text-xs mb-4">Reconstructed with sub-pixel WebGPU neural shaders.</p>
+                <p class="text-gray-400 text-xs mb-4">Slide to compare raw original vs. enhanced output.</p>
 
-                <div class="relative w-full flex justify-center bg-black/5 rounded-xl overflow-hidden p-2 mb-6 border border-gray-100">
-                    <img id="img-upscaled-preview" class="max-h-[420px] max-w-full rounded-lg object-contain shadow-sm" alt="Upscaled Preview">
+                <!-- Interactive Before / After Comparison Slider for Images -->
+                <div class="w-full flex justify-center mb-6">
+                    <div id="image-result-compare-outer">
+                        <div id="image-result-compare">
+                            <img :src="$store.originalImageUrl" alt="Original Image">
+                            <img :src="$store.imageDownloadUrl" alt="Upscaled Image">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="flex flex-col sm:flex-row gap-3 justify-center">
