@@ -25,6 +25,7 @@ let imageResultCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let originalImageSrcUrl: string = '';
+let currentUpscaledBlobUrl: string = '';
 let imageDownloadName = "enhanced-image.png";
 
 export interface ResolutionTargetOption {
@@ -80,7 +81,7 @@ async function index(): Promise<void> {
 
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
-    Alpine.store('imagePreset', 'photo');
+    Alpine.store('imagePreset', 'text');
     Alpine.store('imageWidth', 0);
     Alpine.store('imageHeight', 0);
     Alpine.store('imageDownloadUrl', '');
@@ -99,11 +100,19 @@ async function index(): Promise<void> {
 
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
-    // Bind Globals immediately
+    // Bind Globals
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
-    window.startImageUpscale = startImageUpscale;
+    window.startImageUpscale = triggerInstantImageEnhance;
+    window.updateImageScale = async (scale: number) => {
+        Alpine.store('imageScale', scale);
+        await triggerInstantImageEnhance();
+    };
+    window.updateImagePreset = async (preset: ImageModelPreset) => {
+        Alpine.store('imagePreset', preset);
+        await triggerInstantImageEnhance();
+    };
     window.toggleZoomMode = () => {
         Alpine.store('isZoomed', !Alpine.store('isZoomed'));
     };
@@ -264,16 +273,13 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // ATTACH ONSEEKED BEFORE SETTING CURRENTTIME
         video.onseeked = async () => {
             await new Promise(r => setTimeout(r, 60));
             await captureAndSendPreviewFrame();
         };
 
-        // Seek directly past black intro frame
         video.currentTime = snapTimes[0];
 
-        // Backup render kick
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
                 await captureAndSendPreviewFrame();
@@ -418,7 +424,7 @@ async function initRecording(): Promise<void> {
 }
 
 // ============================================================================
-// IMAGE UPSCALER (WITH INTERACTIVE BEFORE/AFTER SLIDER)
+// IMAGE UPSCALER (INSTANT LIVE BEFORE/AFTER SLIDER)
 // ============================================================================
 
 async function chooseImageFile(e?: Event): Promise<void> {
@@ -460,6 +466,10 @@ async function setupImageFile(file: File): Promise<void> {
     Alpine.store('imageDownloadName', imageDownloadName);
 
     try {
+        if (originalImageSrcUrl) {
+            URL.revokeObjectURL(originalImageSrcUrl);
+        }
+
         activeImageBitmap = await createImageBitmap(file);
         originalImageSrcUrl = URL.createObjectURL(file);
         Alpine.store('originalImageUrl', originalImageSrcUrl);
@@ -467,56 +477,47 @@ async function setupImageFile(file: File): Promise<void> {
         Alpine.store('imageWidth', activeImageBitmap.width);
         Alpine.store('imageHeight', activeImageBitmap.height);
         Alpine.store('imageScale', 2);
-        Alpine.store('imagePreset', 'photo');
+        Alpine.store('imagePreset', 'text');
 
-        const imgOrigCanvas = document.getElementById('img-original-canvas') as HTMLCanvasElement;
-        if (imgOrigCanvas) {
-            imgOrigCanvas.width = activeImageBitmap.width;
-            imgOrigCanvas.height = activeImageBitmap.height;
-            const ctx = imgOrigCanvas.getContext('2d');
-            ctx?.drawImage(activeImageBitmap, 0, 0);
-        }
-
-        Alpine.store('imageState', 'preview');
-
-        window.updateImageScale = function(scale: number): void {
-            Alpine.store('imageScale', scale);
-        };
-
-        window.updateImagePreset = function(preset: ImageModelPreset): void {
-            Alpine.store('imagePreset', preset);
-        };
+        // Run instant enhancement pipeline
+        await triggerInstantImageEnhance();
     } catch {
         Alpine.store('imageError', 'Failed to decode image file. Please use PNG, JPEG, or WebP.');
         Alpine.store('imageState', 'error');
     }
 }
 
-async function startImageUpscale(): Promise<void> {
+async function triggerInstantImageEnhance(): Promise<void> {
     if (!activeImageBitmap) return;
 
     Alpine.store('imageState', 'processing');
 
     try {
         const scale = (Alpine.store('imageScale') as 2 | 4) || 2;
-        const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'photo';
+        const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'text';
 
         const upscaledBlob = await upscaleImage(activeImageBitmap, { scale, preset });
-        const downloadUrl = URL.createObjectURL(upscaledBlob);
-        Alpine.store('imageDownloadUrl', downloadUrl);
 
-        Alpine.store('imageState', 'complete');
+        if (currentUpscaledBlobUrl) {
+            URL.revokeObjectURL(currentUpscaledBlobUrl);
+        }
 
-        // Mount Interactive Before/After Comparison for Image
+        currentUpscaledBlobUrl = URL.createObjectURL(upscaledBlob);
+        Alpine.store('imageDownloadUrl', currentUpscaledBlobUrl);
+        Alpine.store('imageState', 'preview');
+
+        // Mount / Re-mount Before-After Comparison Slider
         setTimeout(() => {
             const imgCompareEl = document.getElementById('image-result-compare');
             if (imgCompareEl) {
                 if (imageResultCompareInstance && typeof imageResultCompareInstance.destroy === 'function') {
-                    try { imageResultCompareInstance.destroy(); } catch {}
+                    try {
+                        imageResultCompareInstance.destroy();
+                    } catch {}
                 }
                 imageResultCompareInstance = new ImageCompare(imgCompareEl).mount();
             }
-        }, 150);
+        }, 100);
 
     } catch (err: any) {
         Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed.');
