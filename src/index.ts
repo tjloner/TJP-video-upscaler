@@ -49,7 +49,6 @@ declare global {
         selectTargetResolution: (index: number) => void;
         selectEngineMode: (mode: EngineMode) => void;
         seekToTimestamp: (timeSeconds: number) => void;
-        toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
@@ -70,9 +69,8 @@ async function index(): Promise<void> {
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
-    Alpine.store('engineMode', 'deep');
+    Alpine.store('engineMode', 'fast'); // Default to Fast Turbo for high FPS
     Alpine.store('proTipMessage', '');
-    Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
 
@@ -186,7 +184,6 @@ async function loadVideo(fileHandle: FileSystemFileHandle): Promise<void> {
 }
 
 async function setupPreview(data: ArrayBuffer): Promise<void> {
-    // ATTACH VIDEO ELEMENT TO DOM IN HIDDEN HOST TO GUARANTEE CHROME DECODES FRAMES
     const host = document.getElementById('hidden-video-host');
     if (host) host.innerHTML = '';
 
@@ -214,7 +211,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        // Pre-allocate matching 2x dimensions
+        // Pre-allocate 2x dimensions before offscreen transfer
         upscaled_canvas.width = vWidth * 2;
         upscaled_canvas.height = vHeight * 2;
         original_canvas.width = vWidth * 2;
@@ -259,33 +256,27 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('timelineSnapshots', snapshots);
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-        // ATTACH ONSEEKED BEFORE SETTING CURRENTTIME
+        // RELIABLE ONSEEKED HANDLER: Bound before setting currentTime
         video.onseeked = async () => {
-            await new Promise(r => setTimeout(r, 100)); // 100ms hardware rasterization wait
+            await new Promise(r => setTimeout(r, 60));
             await captureAndSendPreviewFrame();
         };
 
-        // Trigger immediate seek
+        // Seek past opening black screen directly to first active scene
         video.currentTime = snapTimes[0];
 
-        // Fallback kick
-        setTimeout(async () => {
+        // Safe Fallback Trigger: Guarantees frame renders even if seek is instant
+        setTimeout(() => {
             if (Alpine.store('state') === 'loading') {
-                try {
-                    await video.play();
-                    video.pause();
-                } catch {}
-                await captureAndSendPreviewFrame();
+                captureAndSendPreviewFrame();
             }
-        }, 1200);
+        }, 600);
 
+        // Timeline Scrubbing: Guarded against interrupting active processing
         window.seekToTimestamp = function (timeSec: number) {
+            if (Alpine.store('state') === 'processing') return; // Do not interrupt processing!
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
-        };
-
-        window.toggleZoomMode = function () {
-            Alpine.store('isZoomed', !Alpine.store('isZoomed'));
         };
 
         window.selectEngineMode = function (mode: EngineMode) {
@@ -303,27 +294,33 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     };
 
     async function captureAndSendPreviewFrame() {
-        window.initRecording = initRecording;
+        // Only set preview state if not currently processing a video!
+        if (Alpine.store('state') !== 'processing') {
+            window.initRecording = initRecording;
 
-        const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
-        Alpine.store('availableOptions', options);
+            const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
+            Alpine.store('availableOptions', options);
 
-        if (!Alpine.store('selectedOptionIndex')) {
-            Alpine.store('selectedOptionIndex', options.length - 1);
-        }
-
-        window.selectTargetResolution = function (index: number): void {
-            Alpine.store('selectedOptionIndex', index);
-            const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
-            if (opt) {
-                const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
-                Alpine.store('size', humanFileSize(estimated_size));
+            if (!Alpine.store('selectedOptionIndex')) {
+                Alpine.store('selectedOptionIndex', options.length - 1);
             }
-        };
 
-        const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
-        const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
-        Alpine.store('size', humanFileSize(estimated_size));
+            window.selectTargetResolution = function (index: number): void {
+                Alpine.store('selectedOptionIndex', index);
+                const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
+                if (opt) {
+                    const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+                    Alpine.store('size', humanFileSize(estimated_size));
+                }
+            };
+
+            const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
+            const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+            Alpine.store('size', humanFileSize(estimated_size));
+
+            Alpine.store('target', 'blob');
+            Alpine.store('state', 'preview');
+        }
 
         try {
             const w = video.videoWidth || 640;
@@ -354,11 +351,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 }, [frameBitmap]);
             }
         } catch (e) {
-            console.warn("Preview draw note:", e);
+            console.warn("Frame draw note:", e);
         }
-
-        Alpine.store('target', 'blob');
-        Alpine.store('state', 'preview');
     }
 }
 
@@ -391,7 +385,7 @@ async function initRecording(): Promise<void> {
     const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
-    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
+    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'fast';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
