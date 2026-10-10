@@ -110,7 +110,8 @@ async function index(): Promise<void> {
         await triggerInstantImageEnhance();
     };
     window.toggleZoomMode = () => {
-        Alpine.store('isZoomed', !Alpine.store('isZoomed'));
+        const nextZoom = !Alpine.store('isZoomed');
+        Alpine.store('isZoomed', nextZoom);
     };
 }
 
@@ -222,6 +223,28 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
+        // Explicitly size #player-frame to preserve video aspect ratio and avoid 0-pixel collapse
+        const playerFrame = document.getElementById('player-frame');
+        const isPortrait = vHeight > vWidth;
+        const targetBoxHeight = 420;
+        
+        let displayWidth: number;
+        let displayHeight: number;
+
+        if (isPortrait) {
+            displayHeight = targetBoxHeight;
+            displayWidth = Math.round(targetBoxHeight * (vWidth / vHeight));
+        } else {
+            const containerMaxW = playerFrame?.parentElement?.clientWidth || 540;
+            displayHeight = Math.min(targetBoxHeight, Math.round(containerMaxW * (vHeight / vWidth)));
+            displayWidth = Math.round(displayHeight * (vWidth / vHeight));
+        }
+
+        if (playerFrame) {
+            playerFrame.style.width = `${displayWidth}px`;
+            playerFrame.style.height = `${displayHeight}px`;
+        }
+
         if (upscaled_canvas && original_canvas) {
             upscaled_canvas.width = vWidth * 2;
             upscaled_canvas.height = vHeight * 2;
@@ -253,10 +276,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             await captureAndSendPreviewFrame();
         };
 
-        // Skip potential initial black frames
+        // Skip potential initial black frame
         video.currentTime = snapTimes[0];
 
-        // Fallback kick if seeked event is delayed
+        // Backup render kick
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
                 await captureAndSendPreviewFrame();

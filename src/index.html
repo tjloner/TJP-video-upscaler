@@ -209,14 +209,26 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
                     <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
-                    <div class="lg:col-span-7 flex flex-col items-center">
-                        <div class="w-full split-slider-box flex justify-center items-center">
+                    <div class="lg:col-span-7 flex flex-col items-center w-full">
+                        
+                        <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative">
                             
+                            <!-- 2X ZOOM & CONTROLS TOOLBAR -->
+                            <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
+                                <button type="button" 
+                                        @click="toggleZoomMode()"
+                                        :class="$store.isZoomed ? 'bg-[#fd5d5d] text-white border-[#fd5d5d]' : 'bg-black/70 text-white border-white/20 hover:bg-black'"
+                                        class="px-2.5 py-1 rounded-lg text-xs font-bold border backdrop-blur-md transition-all flex items-center gap-1.5 shadow-md">
+                                    <span>🔍</span> <span x-text="$store.isZoomed ? '2× Zoom ON' : '1× Fit'"></span>
+                                </button>
+                            </div>
+
                             <div x-ref="activeVideoFrame" 
                                  id="player-frame" 
                                  @mousedown="startDrag($event)" 
                                  @touchstart="startDrag($event)"
-                                 class="relative overflow-hidden cursor-ew-resize user-select-none">
+                                 :style="$store.isZoomed ? 'transform: scale(2); transform-origin: center center;' : 'transform: scale(1);'"
+                                 class="relative overflow-hidden cursor-ew-resize user-select-none transition-transform duration-200 ease-out">
                                 
                                 <!-- LEFT LAYER: RAW ORIGINAL -->
                                 <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
@@ -240,7 +252,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                         Original (Raw)
                                     </span>
                                 </div>
-                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
+                                <div class="absolute top-3 left-28 z-30 pointer-events-none">
                                     <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                         Enhanced (AI)
                                     </span>
