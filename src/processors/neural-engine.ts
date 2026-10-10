@@ -9,11 +9,16 @@ export interface NeuralEngineConfig {
   inHeight: number;
   outWidth: number;
   outHeight: number;
-  gpuDevice: GPUDevice;
+  gpuDevice: any;
   canvas: OffscreenCanvas;
   weightProfile?: ModelWeightProfile;
   adaptiveSharpenStrength?: number;
 }
+
+// WebGPU Stage and Usage bit flags (avoids missing @webgpu/types tsconfig compile errors)
+const SHADER_STAGE_COMPUTE = 0x4;
+const BUFFER_USAGE_UNIFORM = 0x0040;
+const BUFFER_USAGE_COPY_DST = 0x0008;
 
 /**
  * High-Performance WebGPU Neural & Post-Processing Engine
@@ -21,15 +26,14 @@ export interface NeuralEngineConfig {
  */
 export class UniversalNeuralEngine {
   private websr: WebSR | null = null;
-  private device: GPUDevice | null = null;
-  private casPipeline: GPUComputePipeline | null = null;
-  private casBindGroupLayout: GPUBindGroupLayout | null = null;
-  private sharpenParamsBuffer: GPUBuffer | null = null;
+  private device: any = null;
+  private casPipeline: any = null;
+  private casBindGroupLayout: any = null;
+  private sharpenParamsBuffer: any = null;
 
   constructor(private config: NeuralEngineConfig) {
     this.device = config.gpuDevice;
 
-    // 1. Select appropriate neural model weights
     const isFast = config.mode === 'fast';
     const profile = config.weightProfile || 'rl';
 
@@ -40,7 +44,7 @@ export class UniversalNeuralEngine {
       networkName = "anime4k/cnn-2x-s";
       try {
         weights = profile === 'rl' 
-          ? require('../weights/cnn-2x-s-an.json') // lightweight fallback
+          ? require('../weights/cnn-2x-s-an.json')
           : require('../weights/cnn-2x-s-an.json');
       } catch {
         weights = require('../weights/cnn-2x-s-an.json');
@@ -56,7 +60,6 @@ export class UniversalNeuralEngine {
       }
     }
 
-    // 2. Initialize WebSR compute pipeline
     try {
       this.websr = new WebSR({
         network_name: networkName as any,
@@ -69,7 +72,6 @@ export class UniversalNeuralEngine {
       console.warn("UniversalNeuralEngine WebSR initialization notice:", e);
     }
 
-    // 3. Initialize pure GPU Contrast Adaptive Sharpening (CAS) shader
     this.initGpuSharpeningPipeline(config.adaptiveSharpenStrength ?? 0.5);
   }
 
@@ -102,14 +104,12 @@ export class UniversalNeuralEngine {
             return;
           }
 
-          // Fetch cross neighborhood
           let c = textureLoad(inputTex, coord, 0);
           let n = textureLoad(inputTex, clamp(coord + vec2<i32>(0, -1), vec2<i32>(0), dims - vec2<i32>(1)), 0);
           let s = textureLoad(inputTex, clamp(coord + vec2<i32>(0, 1), vec2<i32>(0), dims - vec2<i32>(1)), 0);
           let w = textureLoad(inputTex, clamp(coord + vec2<i32>(-1, 0), vec2<i32>(0), dims - vec2<i32>(1)), 0);
           let e = textureLoad(inputTex, clamp(coord + vec2<i32>(1, 0), vec2<i32>(0), dims - vec2<i32>(1)), 0);
 
-          // Contrast adaptive edge synthesis
           let minRgb = min(c, min(min(n, s), min(w, e)));
           let maxRgb = max(c, max(max(n, s), max(w, e)));
 
@@ -125,9 +125,9 @@ export class UniversalNeuralEngine {
 
       this.casBindGroupLayout = this.device.createBindGroupLayout({
         entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'float' } },
-          { binding: 2, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: 'write-only', format: 'rgba8unorm' } },
+          { binding: 0, visibility: SHADER_STAGE_COMPUTE, buffer: { type: 'uniform' } },
+          { binding: 1, visibility: SHADER_STAGE_COMPUTE, texture: { sampleType: 'float' } },
+          { binding: 2, visibility: SHADER_STAGE_COMPUTE, storageTexture: { access: 'write-only', format: 'rgba8unorm' } },
         ],
       });
 
@@ -140,37 +140,30 @@ export class UniversalNeuralEngine {
         compute: { module: shaderModule, entryPoint: 'main' },
       });
 
-      // Prepare uniform parameters buffer
       this.sharpenParamsBuffer = this.device.createBuffer({
-        size: 16, // 4 * float32
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        size: 16,
+        usage: BUFFER_USAGE_UNIFORM | BUFFER_USAGE_COPY_DST,
       });
 
       const paramValues = new Float32Array([
         sharpenStrength,
         this.config.outWidth,
         this.config.outHeight,
-        0.0 // padding
+        0.0
       ]);
       this.device.queue.writeBuffer(this.sharpenParamsBuffer, 0, paramValues);
     } catch (err) {
-      console.warn("GPU sharpening pipeline setup note (falling back to direct neural inference):", err);
+      console.warn("GPU sharpening pipeline setup note:", err);
       this.casPipeline = null;
     }
   }
 
-  /**
-   * Hardware-accelerated frame rendering
-   */
   public async renderFrame(inputFrame: VideoFrame | ImageBitmap): Promise<void> {
     if (this.websr) {
       await this.websr.render(inputFrame as any);
     }
   }
 
-  /**
-   * Release WebGPU resources cleanly
-   */
   public destroy(): void {
     if (this.sharpenParamsBuffer) {
       try {

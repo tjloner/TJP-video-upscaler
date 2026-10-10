@@ -149,7 +149,7 @@ export function analyzeSourceVideo(
 
 export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5, contentType: VideoContentType = 'real_life') {
   // Use real-life weights for photorealistic content, anime for synthetic/graphic content
-  const modelWeightProfile = contentType === 'real_life' ? 'rl' : 'an';
+  const modelWeightProfile: 'rl' | 'an' | '3d' = contentType === 'real_life' ? 'rl' : 'an';
 
   switch (preset) {
     case 'NATURAL':
