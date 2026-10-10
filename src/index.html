@@ -516,8 +516,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 <!-- ENHANCED IMAGE (RIGHT WITH DYNAMIC CLIP PATH) -->
                                 <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden flex justify-center items-center" 
                                      :style="'clip-path: polygon(' + imgSliderPos + '% 0, 100% 0, 100% 100%, ' + imgSliderPos + '% 100%)'">
-                                    <img :src="$store.imageDownloadUrl || $store.originalImageUrl" 
-                                         class="w-full h-full object-contain pointer-events-none select-none">
+                                    <img :src="$store.imageDownloadUrl" class="w-full h-full object-contain pointer-events-none select-none">
                                 </div>
 
                                 <!-- Slider Divider Bar -->

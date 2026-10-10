@@ -30,12 +30,10 @@ export async function upscaleImage(
     throw new Error("WebGPU is not supported or hardware acceleration is disabled.");
   }
 
-  const selectedWeights = modelWeights[options.preset] || photoWeights;
+  const selectedWeights = modelWeights[options.preset] || animeWeights;
   const networkName = "anime4k/cnn-2x-l";
 
-  // =========================================================================
-  // PASS 1: Native 2x Neural Super-Resolution (e.g. 800x800 -> 1600x1600)
-  // =========================================================================
+  // Stage 1: Native WebSR Neural Inference (2x)
   const pass1Width = inWidth * 2;
   const pass1Height = inHeight * 2;
   const canvasPass1 = new OffscreenCanvas(pass1Width, pass1Height);
@@ -50,51 +48,41 @@ export async function upscaleImage(
 
   await websrPass1.render(imageSource as any);
 
-  let finalCanvas: OffscreenCanvas = canvasPass1;
+  // Stage 2: Target Dimension Scaling (if 4x requested)
+  const targetWidth = inWidth * scale;
+  const targetHeight = inHeight * scale;
 
-  // =========================================================================
-  // PASS 2: Cascaded 4x Neural Super-Resolution (1600x1600 -> 3200x3200)
-  // =========================================================================
-  if (scale === 4) {
-    const pass2Width = pass1Width * 2;
-    const pass2Height = pass1Height * 2;
-    const canvasPass2 = new OffscreenCanvas(pass2Width, pass2Height);
-
-    const pass1Bitmap = await createImageBitmap(canvasPass1);
-
-    const websrPass2 = new WebSR({
-      network_name: networkName as any,
-      weights: selectedWeights,
-      resolution: { width: pass1Width, height: pass1Height },
-      gpu: gpu,
-      canvas: canvasPass2 as any,
-    });
-
-    await websrPass2.render(pass1Bitmap as any);
-    pass1Bitmap.close();
-    finalCanvas = canvasPass2;
+  const finalCanvas = new OffscreenCanvas(targetWidth, targetHeight);
+  const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
+  if (!finalCtx) {
+    throw new Error("Unable to create target 2D context");
   }
 
-  // =========================================================================
-  // FINAL PASS: High-Frequency Structural Detail Synthesis
-  // Sharpens eyelashes, hair strands, and textures to prevent soft stretch.
-  // =========================================================================
-  const enhancedCanvas = await applyHighFrequencyDetailPass(finalCanvas, options.preset, scale);
+  finalCtx.imageSmoothingEnabled = true;
+  finalCtx.imageSmoothingQuality = 'high';
 
-  // Convert cleanly to PNG Blob
-  if (typeof (enhancedCanvas as any).convertToBlob === 'function') {
-    return await (enhancedCanvas as any).convertToBlob({ type: 'image/png' });
+  const pass1Bitmap = await createImageBitmap(canvasPass1);
+  finalCtx.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
+  pass1Bitmap.close();
+
+  // Stage 3: High-Frequency Structural Detail Synthesis
+  // Sharpens linework, typography, and micro-textures
+  applyStructuralSharpening(finalCtx, targetWidth, targetHeight, options.preset, scale);
+
+  // Convert to PNG Blob
+  if (typeof (finalCanvas as any).convertToBlob === 'function') {
+    return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
   }
 
-  const finalBitmap = await createImageBitmap(enhancedCanvas);
+  const exportBitmap = await createImageBitmap(finalCanvas);
   const fallbackCanvas = document.createElement('canvas');
-  fallbackCanvas.width = enhancedCanvas.width;
-  fallbackCanvas.height = enhancedCanvas.height;
+  fallbackCanvas.width = targetWidth;
+  fallbackCanvas.height = targetHeight;
   const ctx = fallbackCanvas.getContext('2d');
   if (ctx) {
-    ctx.drawImage(finalBitmap, 0, 0);
+    ctx.drawImage(exportBitmap, 0, 0);
   }
-  finalBitmap.close();
+  exportBitmap.close();
 
   return await new Promise<Blob>((resolve, reject) => {
     fallbackCanvas.toBlob((b) => {
@@ -104,45 +92,29 @@ export async function upscaleImage(
   });
 }
 
-/**
- * Optical High-Frequency Detail Synthesis
- * Applies sub-pixel contrast enhancement to micro-textures (hair, eyes, fabric)
- * while preserving smooth skin gradients and background tones.
- */
-async function applyHighFrequencyDetailPass(
-  sourceCanvas: OffscreenCanvas,
+function applyStructuralSharpening(
+  ctx: OffscreenCanvasRenderingContext2D,
+  w: number,
+  h: number,
   preset: ImageModelPreset,
   scale: 2 | 4
-): Promise<OffscreenCanvas> {
-  const w = sourceCanvas.width;
-  const h = sourceCanvas.height;
-
-  const targetCanvas = new OffscreenCanvas(w, h);
-  const ctx = targetCanvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return sourceCanvas;
-
-  const bitmap = await createImageBitmap(sourceCanvas);
-  ctx.drawImage(bitmap, 0, 0);
-  bitmap.close();
-
-  // Tune strength based on preset profile
-  let sharpenGain = scale === 4 ? 0.32 : 0.22;
-  if (preset === 'portrait') sharpenGain = 0.20; // Keep skin smooth while eyes/hair pop
-  if (preset === 'anime' || preset === 'text') sharpenGain = 0.40;
-
+): void {
   try {
     const imgData = ctx.getImageData(0, 0, w, h);
     const d = imgData.data;
     const copy = new Uint8ClampedArray(d);
 
-    for (let y = 1; y < h - 1; y += 2) {
-      for (let x = 1; x < w - 1; x += 2) {
+    let gain = 0.45;
+    if (preset === 'text') gain = 0.75;
+    if (preset === 'anime') gain = 0.60;
+    if (preset === 'portrait') gain = 0.35;
+
+    // Convolve with 3x3 Laplacian edge-enhancement kernel
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
         const idx = (y * w + x) * 4;
 
-        // Central luminance
         const lumaC = 0.299 * copy[idx] + 0.587 * copy[idx + 1] + 0.114 * copy[idx + 2];
-
-        // 4-neighborhood luminance
         const idxN = ((y - 1) * w + x) * 4;
         const idxS = ((y + 1) * w + x) * 4;
         const idxW = (y * w + (x - 1)) * 4;
@@ -153,25 +125,19 @@ async function applyHighFrequencyDetailPass(
         const lumaW = 0.299 * copy[idxW] + 0.587 * copy[idxW + 1] + 0.114 * copy[idxW + 2];
         const lumaE = 0.299 * copy[idxE] + 0.587 * copy[idxE + 1] + 0.114 * copy[idxE + 2];
 
-        const minL = Math.min(lumaC, Math.min(Math.min(lumaN, lumaS), Math.min(lumaW, lumaE)));
-        const maxL = Math.max(lumaC, Math.max(Math.max(lumaN, lumaS), Math.max(lumaW, lumaE)));
-        const contrast = maxL - minL;
+        const lap = 4 * lumaC - (lumaN + lumaS + lumaW + lumaE);
 
-        // Skip flat skin tones/skies (contrast < 12) and blown-out highlights
-        if (contrast > 12 && lumaC > 18 && lumaC < 240) {
-          const laplacian = 4 * lumaC - (lumaN + lumaS + lumaW + lumaE);
-          const delta = Math.max(-28, Math.min(28, laplacian * sharpenGain));
-
+        if (Math.abs(lap) > 6) {
+          const delta = Math.max(-45, Math.min(45, lap * gain));
           d[idx] = Math.min(255, Math.max(0, copy[idx] + delta));
           d[idx + 1] = Math.min(255, Math.max(0, copy[idx + 1] + delta));
           d[idx + 2] = Math.min(255, Math.max(0, copy[idx + 2] + delta));
         }
       }
     }
+
     ctx.putImageData(imgData, 0, 0);
   } catch (e) {
-    console.warn("High-frequency detail pass note:", e);
+    console.warn("Sharpening note:", e);
   }
-
-  return targetCanvas;
 }
