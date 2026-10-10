@@ -1,4 +1,5 @@
 export type QualityPreset = 'NATURAL' | 'BALANCED' | 'HIGH_DETAIL' | 'REFERENCE_MATCH';
+export type VideoContentType = 'real_life' | 'anime' | 'text_graphics';
 
 export interface SourceLossMetrics {
   macroblockDamage: number;
@@ -23,6 +24,7 @@ export interface VideoQualityProfile {
   noiseLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   compressionDamage: 'LIGHT' | 'MODERATE' | 'HEAVY';
   blurLevel: 'SHARP' | 'MODERATE' | 'BLURRY';
+  contentType: VideoContentType;
   
   lossMetrics: SourceLossMetrics;
   recommendedPreset: QualityPreset;
@@ -33,6 +35,7 @@ export interface VideoQualityProfile {
     faceProtectionWeight: number;
     adaptiveSharpenStrength: number;
     colorAnchoring: boolean;
+    modelWeightProfile: 'rl' | 'an' | '3d';
   };
   recommendedStrategy: {
     upscaleFactor: 1 | 2 | 4;
@@ -58,7 +61,7 @@ export function analyzeSourceVideo(
   const fps = fpsNum && fpsDen ? Math.round(fpsNum / fpsDen) : 24;
 
   const bitrateKbps = durationSec > 0 ? Math.round((fileSizeBytes * 8) / (durationSec * 1000)) : 650;
-  const bitsPerPixel = (bitrateKbps * 1000) / (width * height * fps);
+  const bitsPerPixel = (bitrateKbps * 1000) / Math.max(1, width * height * fps);
 
   const macroblockDamage = Math.min(1.0, Math.max(0.05, 0.22 / Math.max(0.04, bitsPerPixel)));
   const mosquitoNoise = Math.min(1.0, Math.max(0.1, macroblockDamage * 0.85));
@@ -77,6 +80,14 @@ export function analyzeSourceVideo(
   let noiseLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM';
   if (compressionDamage === 'HEAVY') noiseLevel = 'HIGH';
   else if (compressionDamage === 'LIGHT') noiseLevel = 'LOW';
+
+  // Detect likely content type based on bit distribution and resolution characteristics
+  // Standard video with normal or high bpp is natural real-life camera footage
+  let contentType: VideoContentType = 'real_life';
+  if (bitsPerPixel < 0.05 && (width === 1920 || width === 1280)) {
+    // Ultra-low bpp at HD resolution typically indicates animated or synthetic content
+    contentType = 'anime';
+  }
 
   const score = Math.min(95, Math.max(20, Math.round(
     (Math.min(0.2, bitsPerPixel) / 0.2) * 35 +
@@ -99,7 +110,7 @@ export function analyzeSourceVideo(
   const targetWidth = Math.floor((width * upscaleFactor) / 2) * 2;
   const targetHeight = Math.floor((height * upscaleFactor) / 2) * 2;
 
-  const presetConfig = getPresetConfig(recommendedPreset, macroblockDamage);
+  const presetConfig = getPresetConfig(recommendedPreset, macroblockDamage, contentType);
 
   return {
     width,
@@ -114,6 +125,7 @@ export function analyzeSourceVideo(
     noiseLevel,
     compressionDamage,
     blurLevel,
+    contentType,
     lossMetrics: {
       macroblockDamage: Number(macroblockDamage.toFixed(2)),
       chromaSubsamplingLoss,
@@ -135,7 +147,10 @@ export function analyzeSourceVideo(
   };
 }
 
-export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
+export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5, contentType: VideoContentType = 'real_life') {
+  // Use real-life weights for photorealistic content, anime for synthetic/graphic content
+  const modelWeightProfile = contentType === 'real_life' ? 'rl' : 'an';
+
   switch (preset) {
     case 'NATURAL':
       return {
@@ -143,8 +158,9 @@ export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
         denoiseStrength: 0.10,
         temporalWindowSize: 3,
         faceProtectionWeight: 0.60,
-        adaptiveSharpenStrength: 0.40,
-        colorAnchoring: true
+        adaptiveSharpenStrength: 0.35,
+        colorAnchoring: true,
+        modelWeightProfile
       };
     case 'HIGH_DETAIL':
       return {
@@ -152,8 +168,9 @@ export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
         denoiseStrength: 0.05,
         temporalWindowSize: 3,
         faceProtectionWeight: 0.30,
-        adaptiveSharpenStrength: 0.85,
-        colorAnchoring: true
+        adaptiveSharpenStrength: 0.75,
+        colorAnchoring: true,
+        modelWeightProfile
       };
     case 'REFERENCE_MATCH':
       return {
@@ -161,8 +178,9 @@ export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
         denoiseStrength: 0.10,
         temporalWindowSize: 3,
         faceProtectionWeight: 0.45,
-        adaptiveSharpenStrength: 0.70,
-        colorAnchoring: true
+        adaptiveSharpenStrength: 0.50,
+        colorAnchoring: true,
+        modelWeightProfile
       };
     case 'BALANCED':
     default:
@@ -171,8 +189,9 @@ export function getPresetConfig(preset: QualityPreset, macroblockDamage = 0.5) {
         denoiseStrength: 0.08,
         temporalWindowSize: 3,
         faceProtectionWeight: 0.50,
-        adaptiveSharpenStrength: 0.65,
-        colorAnchoring: true
+        adaptiveSharpenStrength: 0.55,
+        colorAnchoring: true,
+        modelWeightProfile
       };
   }
 }

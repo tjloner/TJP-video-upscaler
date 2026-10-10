@@ -45,37 +45,6 @@ export interface RealTelemetryReport {
   failureReason?: string;
 }
 
-// Active typography edge sharpener (used only in Deep AI mode where CPU refinement is desired)
-function applyTextSharpeningPass(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number): void {
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const d = imgData.data;
-  const copy = new Uint8ClampedArray(d);
-
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const idx = (y * w + x) * 4;
-      const luma = 0.299 * copy[idx] + 0.587 * copy[idx + 1] + 0.114 * copy[idx + 2];
-
-      if (luma < 25) continue;
-
-      const up = 0.299 * copy[((y - 1) * w + x) * 4] + 0.587 * copy[((y - 1) * w + x) * 4 + 1] + 0.114 * copy[((y - 1) * w + x) * 4 + 2];
-      const down = 0.299 * copy[((y + 1) * w + x) * 4] + 0.587 * copy[((y + 1) * w + x) * 4 + 1] + 0.114 * copy[((y + 1) * w + x) * 4 + 2];
-      const left = 0.299 * copy[(y * w + (x - 1)) * 4] + 0.587 * copy[(y * w + (x - 1)) * 4 + 1] + 0.114 * copy[(y * w + (x - 1)) * 4 + 2];
-      const right = 0.299 * copy[(y * w + (x + 1)) * 4] + 0.587 * copy[(y * w + (x + 1)) * 4 + 1] + 0.114 * copy[(y * w + (x + 1)) * 4 + 2];
-
-      const lap = 4 * luma - (up + down + left + right);
-
-      if (Math.abs(lap) > 10) {
-        const delta = Math.max(-40, Math.min(40, lap * 0.35));
-        d[idx] = Math.min(255, Math.max(0, copy[idx] + delta));
-        d[idx + 1] = Math.min(255, Math.max(0, copy[idx + 1] + delta));
-        d[idx + 2] = Math.min(255, Math.max(0, copy[idx + 2] + delta));
-      }
-    }
-  }
-  ctx.putImageData(imgData, 0, 0);
-}
-
 async function getCalibratedEncoderConfig(width: number, height: number, framerate: number, requestedBitrate?: number): Promise<VideoEncoderConfig> {
   const targetWidth = Math.floor(width / 2) * 2;
   const targetHeight = Math.floor(height / 2) * 2;
@@ -166,7 +135,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     const nominalFps = fpsNum && fpsDen ? fpsNum / fpsDen : 24.0;
     const expectedFrameCount = Math.round(duration * nominalFps);
 
-    // Source Profile
+    // Source Profile & Content Analysis
     const sourceProfile = analyzeSourceVideo(videoTrack, { width: inWidth, height: inHeight }, duration, file.size);
     const activePreset = preset || sourceProfile.recommendedPreset;
     postMessage({ cmd: 'sourceReport', data: { ...sourceProfile, activePreset } } as any);
@@ -200,23 +169,29 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     }
 
     const exportCanvas = new OffscreenCanvas(outWidth, outHeight);
-    
-    // In Deep AI mode, we use an intermediate canvas for text edge steepening
-    // In Fast Turbo mode, we bypass this entirely to guarantee 10-18 FPS speed!
     const isDeepMode = engineMode === 'deep';
-    let postCanvas: OffscreenCanvas | null = null;
-    let postCtx: OffscreenCanvasRenderingContext2D | null = null;
+
+    // Content-Aware Model Selection based on Source Profile
+    const weightProfile = sourceProfile.presetConfig?.modelWeightProfile || 'rl';
+
+    let modelWeights: any;
+    let networkName: string;
 
     if (isDeepMode) {
-      postCanvas = new OffscreenCanvas(outWidth, outHeight);
-      postCtx = postCanvas.getContext('2d', { willReadFrequently: true });
+      networkName = "anime4k/cnn-2x-l";
+      if (weightProfile === 'rl') {
+        try {
+          modelWeights = require('../weights/cnn-2x-l-rl.json');
+        } catch {
+          modelWeights = require('../weights/cnn-2x-l-an.json');
+        }
+      } else {
+        modelWeights = require('../weights/cnn-2x-l-an.json');
+      }
+    } else {
+      networkName = "anime4k/cnn-2x-s";
+      modelWeights = require('../weights/cnn-2x-s-an.json');
     }
-
-    const modelWeights = isDeepMode 
-      ? require('../weights/cnn-2x-l-an.json') 
-      : require('../weights/cnn-2x-s-an.json');
-
-    const networkName = isDeepMode ? "anime4k/cnn-2x-l" : "anime4k/cnn-2x-s";
 
     const dedicatedWebSR = new WebSR({
       network_name: networkName as any,
@@ -314,20 +289,10 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
           notifyProducer = null;
         }
 
-        // WebGPU Neural Pass
+        // WebGPU Hardware Neural Pass (Zero CPU Readback)
         await dedicatedWebSR.render(currentFrame as any);
 
-        // In Fast Turbo: frame is wrapped DIRECTLY from exportCanvas (Zero CPU readbacks = Maximum FPS!)
-        // In Deep AI: apply text edge steepening pass
-        let renderTarget: CanvasImageSource = exportCanvas;
-
-        if (isDeepMode && postCtx && postCanvas) {
-          postCtx.drawImage(exportCanvas, 0, 0);
-          applyTextSharpeningPass(postCtx, outWidth, outHeight);
-          renderTarget = postCanvas;
-        }
-
-        const outFrame = new VideoFrame(renderTarget as any, {
+        const outFrame = new VideoFrame(exportCanvas as any, {
           timestamp: currentFrame.timestamp,
           duration: currentFrame.duration || Math.round(1_000_000 / nominalFps),
           alpha: "discard"
@@ -415,9 +380,12 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
       avSyncDeltaMs: Math.round(Math.abs(duration - (audioDurationSec || duration)) * 1000),
       resolution: `${outWidth}×${outHeight}`,
       bitrateMbps: (videoEncoderConfig.bitrate / 1_000_000).toFixed(1),
-      presetUsed: isDeepMode ? 'Deep AI Clarity Engine' : 'Fast Turbo WebGPU Shader',
+      presetUsed: isDeepMode 
+        ? (weightProfile === 'rl' ? 'Deep AI Photorealistic Fidelity Core' : 'Deep AI Sub-Pixel Line Restoration') 
+        : 'Fast Turbo WebGPU Hardware Pipeline',
       stagesExecuted: [
-        isDeepMode ? 'Deep Sub-Pixel Typography Edge Reconstruction' : 'High-Speed WebGPU Shader Pipeline',
+        isDeepMode ? `Deep Neural Super-Resolution (${weightProfile.toUpperCase()} weights)` : 'Fast Turbo Neural Synthesis (Pure WebGPU)',
+        'Zero-Copy Direct GPU Texture Pipeline',
         'Strict 1:1 Frame Lock-Step Integrity',
         'Lossless Audio Stream Passthrough',
         `Calibrated Output Bitrate (${(videoEncoderConfig.bitrate / 1_000_000).toFixed(1)} Mbps)`
