@@ -235,7 +235,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             displayHeight = targetBoxHeight;
             displayWidth = Math.round(targetBoxHeight * (vWidth / vHeight));
         } else {
-            const containerMaxW = playerFrame?.parentElement?.clientWidth || 540;
+            const containerMaxW = 540;
             displayHeight = Math.min(targetBoxHeight, Math.round(containerMaxW * (vHeight / vWidth)));
             displayWidth = Math.round(displayHeight * (vWidth / vHeight));
         }
@@ -243,6 +243,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         if (playerFrame) {
             playerFrame.style.width = `${displayWidth}px`;
             playerFrame.style.height = `${displayHeight}px`;
+            playerFrame.style.minWidth = `${displayWidth}px`;
+            playerFrame.style.minHeight = `${displayHeight}px`;
         }
 
         if (upscaled_canvas && original_canvas) {

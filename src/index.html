@@ -211,7 +211,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center w-full">
                         
-                        <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative">
+                        <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative" style="height: 440px;">
                             
                             <!-- 2X ZOOM & CONTROLS TOOLBAR -->
                             <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
@@ -223,39 +223,42 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </button>
                             </div>
 
-                            <div x-ref="activeVideoFrame" 
-                                 id="player-frame" 
-                                 @mousedown="startDrag($event)" 
-                                 @touchstart="startDrag($event)"
-                                 :style="$store.isZoomed ? 'transform: scale(2); transform-origin: center center;' : 'transform: scale(1);'"
-                                 class="relative overflow-hidden cursor-ew-resize user-select-none transition-transform duration-200 ease-out">
-                                
-                                <!-- LEFT LAYER: RAW ORIGINAL -->
-                                <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
-                                
-                                <!-- RIGHT LAYER: NEURAL ENHANCED -->
-                                <div class="video-canvas-layer pointer-events-none overflow-hidden" 
-                                     :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                    <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
-                                </div>
-
-                                <!-- Center Split Divider Line -->
-                                <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
-                                    <div class="slider-handle-center font-bold">
-                                        <span>◀▶</span>
+                            <!-- Dedicated wrapper so Zoom doesn't wipe dimensions -->
+                            <div class="w-full h-full flex justify-center items-center overflow-hidden pointer-events-auto">
+                                <div x-ref="activeVideoFrame" 
+                                     id="player-frame" 
+                                     @mousedown="startDrag($event)" 
+                                     @touchstart="startDrag($event)"
+                                     :class="$store.isZoomed ? 'scale-[2.0] cursor-grab' : 'scale-100 cursor-ew-resize'"
+                                     class="relative overflow-hidden user-select-none transition-transform duration-200 ease-out origin-center">
+                                    
+                                    <!-- LEFT LAYER: RAW ORIGINAL -->
+                                    <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
+                                    
+                                    <!-- RIGHT LAYER: NEURAL ENHANCED -->
+                                    <div class="video-canvas-layer pointer-events-none overflow-hidden" 
+                                         :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
+                                        <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
                                     </div>
-                                </div>
 
-                                <!-- Header Badges -->
-                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Original (Raw)
-                                    </span>
-                                </div>
-                                <div class="absolute top-3 left-28 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Enhanced (AI)
-                                    </span>
+                                    <!-- Center Split Divider Line -->
+                                    <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
+                                        <div class="slider-handle-center font-bold">
+                                            <span>◀▶</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Header Badges -->
+                                    <div class="absolute top-3 left-3 z-30 pointer-events-none">
+                                        <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                            Original (Raw)
+                                        </span>
+                                    </div>
+                                    <div class="absolute top-3 left-28 z-30 pointer-events-none">
+                                        <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                            Enhanced (AI)
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
