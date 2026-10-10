@@ -1,13 +1,10 @@
 import Alpine from 'alpinejs';
-import ImageCompare from './lib/image-compare-viewer.min';
-import WebSR from '@websr/websr';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
 import type { WorkerRequestMessage, EngineMode } from './types/worker-messages';
 
 import 'bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import "./index.css";
-import "./lib/image-compare-viewer.min.css";
 
 const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
@@ -20,8 +17,6 @@ let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
-let imageCompareInstance: any = null;
-let imageResultCompareInstance: any = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let originalImageSrcUrl: string = '';
@@ -36,14 +31,6 @@ export interface ResolutionTargetOption {
     bitrate: number;
     tag: string;
 }
-
-const weights = {
-    'large': {
-        'an': require('./weights/cnn-2x-l-an.json'),
-        'rl': require('./weights/cnn-2x-l-rl.json'),
-        '3d': require('./weights/cnn-2x-l-3d.json'),
-    }
-};
 
 declare global {
     interface Window {
@@ -67,6 +54,7 @@ declare global {
 document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
+    // Video Stores
     Alpine.store('appMode', 'video');
     Alpine.store('state', 'init');
     Alpine.store('target', 'blob');
@@ -78,7 +66,15 @@ async function index(): Promise<void> {
     Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
+    Alpine.store('width', 0);
+    Alpine.store('height', 0);
+    Alpine.store('progress', 0);
+    Alpine.store('eta', '');
+    Alpine.store('size', '');
+    Alpine.store('filename', '');
+    Alpine.store('error', '');
 
+    // Image Stores
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 2);
     Alpine.store('imagePreset', 'text');
@@ -100,7 +96,7 @@ async function index(): Promise<void> {
 
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
-    // Bind Globals
+    // Global bindings
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
@@ -179,7 +175,7 @@ async function chooseFile(e?: Event): Promise<void> {
         });
         await loadVideo(fileHandle);
     } catch {
-        console.log('File selection cancelled');
+        console.log('Video selection cancelled');
     }
 }
 
@@ -215,9 +211,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
     const fileBlob = new Blob([data], { type: "video/mp4" });
     video.src = URL.createObjectURL(fileBlob);
 
-    const imageCompareOuter = document.getElementById('image-compare-outer') as HTMLElement;
-    const imageCompareEl = document.getElementById('image-compare') as HTMLElement;
-
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
     };
@@ -229,38 +222,20 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('width', vWidth);
         Alpine.store('height', vHeight);
 
-        upscaled_canvas.width = vWidth * 2;
-        upscaled_canvas.height = vHeight * 2;
-        original_canvas.width = vWidth * 2;
-        original_canvas.height = vHeight * 2;
-
-        const isPortrait = vHeight > vWidth;
-        if (isPortrait) {
-            const h = 420;
-            const w = Math.round(h * (vWidth / vHeight));
-            imageCompareOuter.style.width = `${w}px`;
-            imageCompareOuter.style.height = `${h}px`;
-        } else {
-            const maxW = imageCompareOuter.parentElement?.clientWidth || 520;
-            const h = Math.min(360, Math.round(maxW * (vHeight / vWidth)));
-            imageCompareOuter.style.width = '100%';
-            imageCompareOuter.style.height = `${h}px`;
-        }
-
-        imageCompareOuter.style.margin = 'auto';
-        imageCompareOuter.style.position = 'relative';
-
-        if (!imageCompareInstance) {
-            imageCompareInstance = new ImageCompare(imageCompareEl).mount();
+        if (upscaled_canvas && original_canvas) {
+            upscaled_canvas.width = vWidth * 2;
+            upscaled_canvas.height = vHeight * 2;
+            original_canvas.width = vWidth * 2;
+            original_canvas.height = vHeight * 2;
         }
 
         const dur = video.duration || 10;
         const snapTimes = [
             Math.min(1.8, Math.max(0.8, dur * 0.15)),
-            Math.min(dur * 0.35, dur - 0.5),
-            Math.min(dur * 0.55, dur - 0.5),
-            Math.min(dur * 0.75, dur - 0.5),
-            Math.min(dur * 0.90, dur - 0.5)
+            Math.min(dur * 0.35, Math.max(1.0, dur - 0.5)),
+            Math.min(dur * 0.55, Math.max(1.5, dur - 0.5)),
+            Math.min(dur * 0.75, Math.max(2.0, dur - 0.5)),
+            Math.min(dur * 0.90, Math.max(2.5, dur - 0.5))
         ];
 
         const snapshots = [
@@ -278,8 +253,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             await captureAndSendPreviewFrame();
         };
 
+        // Skip potential initial black frames
         video.currentTime = snapTimes[0];
 
+        // Fallback kick if seeked event is delayed
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
                 await captureAndSendPreviewFrame();
@@ -424,7 +401,7 @@ async function initRecording(): Promise<void> {
 }
 
 // ============================================================================
-// IMAGE UPSCALER (INSTANT LIVE BEFORE/AFTER SLIDER)
+// IMAGE UPSCALER (INSTANT NATIVE BEFORE/AFTER SPLIT SLIDER)
 // ============================================================================
 
 async function chooseImageFile(e?: Event): Promise<void> {
@@ -479,7 +456,6 @@ async function setupImageFile(file: File): Promise<void> {
         Alpine.store('imageScale', 2);
         Alpine.store('imagePreset', 'text');
 
-        // Run instant enhancement pipeline
         await triggerInstantImageEnhance();
     } catch {
         Alpine.store('imageError', 'Failed to decode image file. Please use PNG, JPEG, or WebP.');
@@ -505,20 +481,6 @@ async function triggerInstantImageEnhance(): Promise<void> {
         currentUpscaledBlobUrl = URL.createObjectURL(upscaledBlob);
         Alpine.store('imageDownloadUrl', currentUpscaledBlobUrl);
         Alpine.store('imageState', 'preview');
-
-        // Mount / Re-mount Before-After Comparison Slider
-        setTimeout(() => {
-            const imgCompareEl = document.getElementById('image-result-compare');
-            if (imgCompareEl) {
-                if (imageResultCompareInstance && typeof imageResultCompareInstance.destroy === 'function') {
-                    try {
-                        imageResultCompareInstance.destroy();
-                    } catch {}
-                }
-                imageResultCompareInstance = new ImageCompare(imgCompareEl).mount();
-            }
-        }, 100);
-
     } catch (err: any) {
         Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed.');
         Alpine.store('imageState', 'error');
