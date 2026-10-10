@@ -19,13 +19,14 @@
     <style>
         .split-slider-box {
             position: relative;
-            background: #050505;
+            background: #090d16;
             border-radius: 1rem;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 440px;
+            min-height: 420px;
+            width: 100%;
         }
         .video-canvas-layer {
             position: absolute;
@@ -50,8 +51,8 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 34px;
-            height: 34px;
+            width: 32px;
+            height: 32px;
             background: #ffffff;
             border-radius: 50%;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
@@ -107,7 +108,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
 <div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
 
-<div class="w-full flex-grow flex flex-col justify-center py-6 sm:py-8">
+<div class="w-full flex-grow flex flex-col justify-start py-6 sm:py-8">
     
     <!-- Top Header -->
     <header class="w-full text-center px-4 mb-4">
@@ -138,24 +139,24 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
     </header>
 
     <!-- Top Mode Switcher (Video vs Image) -->
-    <div class="flex justify-center mb-5 px-4">
+    <div class="flex justify-center mb-6 px-4">
         <div class="bg-gray-200 p-1 rounded-2xl inline-flex gap-1 shadow-inner">
             <button type="button" 
                     @click="$store.appMode = 'video'; switchAppMode('video')"
                     :class="$store.appMode === 'video' ? 'bg-white shadow text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-900 font-medium'"
-                    class="px-5 py-1.5 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
+                    class="px-5 py-2 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
                 <span>🎬</span> Video Enhancer
             </button>
             <button type="button" 
                     @click="$store.appMode = 'image'; switchAppMode('image')"
                     :class="$store.appMode === 'image' ? 'bg-white shadow text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-900 font-medium'"
-                    class="px-5 py-1.5 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
+                    class="px-5 py-2 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
                 <span>🖼️</span> Image Upscaler
             </button>
         </div>
     </div>
 
-    <!-- Main Workspace Container: 2-COLUMN STUDIO LAYOUT -->
+    <!-- Main Workspace Container -->
     <main class="w-full max-w-5xl px-4 mx-auto">
 
         <!-- ================================================================= -->
@@ -184,7 +185,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
                     Supports 360p, 480p, 720p, and 1080p clips up to 4K UHD. Runs locally on your GPU with total privacy.
                 </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base" onclick="chooseFile(this)">
+                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseFile(this)">
                     Select Video File
                 </button>
             </div>
@@ -211,7 +212,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     
                     <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
-                        
                         <div class="w-full split-slider-box flex justify-center items-center">
                             
                             <div x-ref="activeVideoFrame" 
@@ -272,7 +272,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- RIGHT COLUMN: STUDIO CONTROL DECK -->
                     <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
                         
-                        <!-- File Info & Dimension Mapping -->
                         <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Resolution Mapping</span>
@@ -327,7 +326,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- Workflow Tip Banner -->
                         <div x-show="$store.proTipMessage" class="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-snug">
                             💡 <strong>Tip:</strong> <span x-text="$store.proTipMessage"></span>
                         </div>
@@ -343,7 +341,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </button>
                             </div>
 
-                            <!-- Processing Progress Bar inside Control Deck -->
+                            <!-- Processing Progress Bar -->
                             <div x-show="$store.state === 'processing' || $store.state === 'paused'" class="space-y-3">
                                 <div class="flex justify-between items-center text-xs font-semibold text-gray-700">
                                     <span>Processing Frames...</span>
@@ -369,7 +367,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                 </div>
 
-                <!-- Complete State: Quality Audit Card & Download -->
+                <!-- Complete State: Audit Card & Download -->
                 <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
                     <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
@@ -416,10 +414,11 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
         </div>
 
         <!-- ================================================================= -->
-        <!-- TAB 2: IMAGE UPSCALER (WITH NATIVE BEFORE/AFTER SPLIT SLIDER)     -->
+        <!-- TAB 2: IMAGE UPSCALER                                             -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'image'">
             
+            <!-- Step 1: Initial Upload Card -->
             <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
                 <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
                     <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -430,19 +429,19 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
                     Supports PNG, JPG, JPEG, and WebP. Reconstruct photos, portraits, anime art, and text logos in under 1 second on your GPU.
                 </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base" onclick="chooseImageFile(this)">
+                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseImageFile(this)">
                     Select Image File
                 </button>
             </div>
 
-            <!-- Image Processing Spinner -->
+            <!-- Step 2: Processing Spinner -->
             <div class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
                 <h3 class="text-lg font-bold text-gray-800">Upscaling Image with WebGPU</h3>
                 <p class="text-gray-400 text-sm mt-1">Applying sub-pixel neural reconstruction...</p>
             </div>
 
-            <!-- Image Error Panel -->
+            <!-- Step 3: Error Panel -->
             <div class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.imageState === 'error'">
                 <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
                 <h3 class="text-lg font-bold text-gray-900 mb-2">Image Processing Error</h3>
@@ -452,12 +451,12 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 </button>
             </div>
 
-            <!-- Image Workspace (WITH INTERACTIVE BEFORE/AFTER SLIDER LIKE NERO AI) -->
-            <div class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl max-w-4xl mx-auto" x-show="$store.imageState === 'preview'">
+            <!-- Step 4: Full Image Studio Workspace -->
+            <div class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl max-w-5xl mx-auto" x-show="$store.imageState === 'preview'">
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
-                    <!-- LEFT COLUMN: LIVE IMAGE BEFORE / AFTER SPLIT SLIDER -->
+                    <!-- LEFT COLUMN: LIVE BEFORE/AFTER SPLIT SLIDER -->
                     <div class="lg:col-span-7 flex flex-col items-center w-full">
                         <div class="w-full split-slider-box flex justify-center items-center p-2">
                             
@@ -466,38 +465,23 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                  @touchstart="startImgDrag($event)"
                                  class="relative overflow-hidden cursor-ew-resize user-select-none w-full h-[400px] flex justify-center items-center">
                                 
-                                <!-- ORIGINAL IMAGE (LEFT / BASE) -->
+                                <!-- ORIGINAL IMAGE (LEFT) -->
                                 <img :src="$store.originalImageUrl" 
                                      class="w-full h-full object-contain pointer-events-none select-none">
                                 
-                                <!-- ENHANCED IMAGE (RIGHT / OVERLAY WITH CLIP-PATH) -->
+                                <!-- ENHANCED IMAGE (RIGHT WITH DYNAMIC CLIP PATH) -->
                                 <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden flex justify-center items-center" 
                                      :style="'clip-path: polygon(' + imgSliderPos + '% 0, 100% 0, 100% 100%, ' + imgSliderPos + '% 100%)'">
                                     <img :src="$store.imageDownloadUrl || $store.originalImageUrl" 
                                          class="w-full h-full object-contain pointer-events-none select-none">
                                 </div>
 
-                                <!-- Center Split Divider Line -->
+                                <!-- Slider Divider Bar -->
                                 <div class="slider-bar-rule" :style="'left: ' + imgSliderPos + '%'">
                                     <div class="slider-handle-center font-bold">
                                         <span>◀▶</span>
                                     </div>
                                 </div>
-
-                                <!-- Header Badges -->
-                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Original
-                                    </span>
-                                </div>
-                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        AI Enhanced
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                                 <!-- Header Badges -->
                                 <div class="absolute top-3 left-3 z-30 pointer-events-none">
@@ -558,7 +542,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </div>
                             </div>
                             <p class="text-[11px] text-gray-400 mt-1.5 leading-snug">
-                                <strong>Text & Logo:</strong> Designed specifically for ID cards, receipts, and screenshots with typography.
+                                <strong>Text & Logo:</strong> Optimized for ID cards, receipts, and documents with typography.
                             </p>
                         </div>
 
