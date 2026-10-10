@@ -25,15 +25,6 @@ export async function upscaleImage(
   const inHeight = imageSource.height;
   const scale = options.scale;
 
-  let targetWidth = inWidth * scale;
-  let targetHeight = inHeight * scale;
-
-  if (targetWidth > 8192 || targetHeight > 8192) {
-    const clampRatio = Math.min(8192 / targetWidth, 8192 / targetHeight);
-    targetWidth = Math.floor(targetWidth * clampRatio);
-    targetHeight = Math.floor(targetHeight * clampRatio);
-  }
-
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
     throw new Error("WebGPU is not supported or hardware acceleration is disabled.");
@@ -77,22 +68,21 @@ export async function upscaleImage(
     finalCanvas = canvasPass2;
   }
 
-  if (options.preset === 'text') {
-    applyTextPostFilter(finalCanvas);
-  }
-
-  // Type-safe blob export with browser fallback
+  // Convert WebGPU OffscreenCanvas safely to Blob without context conflict
   if (typeof (finalCanvas as any).convertToBlob === 'function') {
     return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
   }
 
-  const bitmap = await createImageBitmap(finalCanvas);
+  // Fallback for browsers lacking convertToBlob on OffscreenCanvas
+  const finalBitmap = await createImageBitmap(finalCanvas);
   const fallbackCanvas = document.createElement('canvas');
   fallbackCanvas.width = finalCanvas.width;
   fallbackCanvas.height = finalCanvas.height;
   const ctx = fallbackCanvas.getContext('2d');
-  ctx?.drawImage(bitmap, 0, 0);
-  bitmap.close();
+  if (ctx) {
+    ctx.drawImage(finalBitmap, 0, 0);
+  }
+  finalBitmap.close();
 
   return await new Promise<Blob>((resolve, reject) => {
     fallbackCanvas.toBlob((b) => {
@@ -100,30 +90,4 @@ export async function upscaleImage(
       else reject(new Error("Image conversion failed"));
     }, 'image/png');
   });
-}
-
-function applyTextPostFilter(canvas: OffscreenCanvas): void {
-  try {
-    const ctx = (canvas as any).getContext('2d') as OffscreenCanvasRenderingContext2D | null;
-    if (!ctx) return;
-
-    const w = canvas.width;
-    const h = canvas.height;
-    const imgData = ctx.getImageData(0, 0, w, h);
-    const d = imgData.data;
-
-    for (let i = 0; i < d.length; i += 4) {
-      const luma = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-      if (luma > 210) {
-        d[i] = Math.min(255, d[i] + 10);
-        d[i + 1] = Math.min(255, d[i + 1] + 10);
-        d[i + 2] = Math.min(255, d[i + 2] + 10);
-      } else if (luma < 50) {
-        d[i] = Math.max(0, d[i] - 10);
-        d[i + 1] = Math.max(0, d[i + 1] - 10);
-        d[i + 2] = Math.max(0, d[i + 2] - 10);
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
-  } catch {}
 }

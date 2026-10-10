@@ -15,9 +15,95 @@
     <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
 
     <link rel="stylesheet" href="./lib/image-compare-viewer.min.css">
+
+    <style>
+        .split-slider-box {
+            position: relative;
+            background: #050505;
+            border-radius: 1rem;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 440px;
+        }
+        .video-canvas-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: fill;
+        }
+        .slider-bar-rule {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+            pointer-events: none;
+            z-index: 30;
+        }
+        .slider-handle-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 34px;
+            height: 34px;
+            background: #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #111;
+            cursor: ew-resize;
+            pointer-events: all;
+            user-select: none;
+        }
+    </style>
 </head>
 
-<body x-data="{ licenseModal: false, isPro: false, licenseKey: '' }" style="display: none;" class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+<body x-data="{ 
+    licenseModal: false, 
+    isPro: false, 
+    licenseKey: '',
+    sliderPos: 50, 
+    isDragging: false,
+    imgSliderPos: 50,
+    isImgDragging: false,
+    startDrag(e) { this.isDragging = true; this.updateSlider(e); },
+    stopDrag() { this.isDragging = false; },
+    updateSlider(e) {
+        if (!this.isDragging && e.type !== 'click') return;
+        const frame = $refs.activeVideoFrame;
+        if (!frame) return;
+        const rect = frame.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const x = clientX - rect.left;
+        this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
+    },
+    startImgDrag(e) { this.isImgDragging = true; this.updateImgSlider(e); },
+    stopImgDrag() { this.isImgDragging = false; },
+    updateImgSlider(e) {
+        if (!this.isImgDragging && e.type !== 'click') return;
+        const box = $refs.imgBox;
+        if (!box) return;
+        const rect = box.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const x = clientX - rect.left;
+        this.imgSliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
+    }
+}" 
+@mouseup="stopDrag(); stopImgDrag();" 
+@touchend="stopDrag(); stopImgDrag();" 
+@mousemove="updateSlider($event); updateImgSlider($event);" 
+@touchmove="updateSlider($event); updateImgSlider($event);"
+style="display: none;" 
+class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
 
 <div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
 
@@ -126,26 +212,45 @@
                     <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center">
                         
-                        <div class="w-full tjp-player-stage relative">
-                            <!-- ImageCompare Viewport (Smooth Zoom transform without buffer crash) -->
-                            <div id="image-compare-outer" :style="$store.isZoomed ? 'transform: scale(1.85); transform-origin: center center; transition: transform 0.25s ease;' : 'transform: scale(1.0); transition: transform 0.25s ease;'">
-                                <div id="image-compare">
-                                    <canvas id="original"></canvas>
-                                    <canvas id="upscaled"></canvas>
+                        <div class="w-full split-slider-box flex justify-center items-center">
+                            
+                            <div x-ref="activeVideoFrame" 
+                                 id="player-frame" 
+                                 @mousedown="startDrag($event)" 
+                                 @touchstart="startDrag($event)"
+                                 class="relative overflow-hidden cursor-ew-resize user-select-none">
+                                
+                                <!-- LEFT LAYER: RAW ORIGINAL -->
+                                <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
+                                
+                                <!-- RIGHT LAYER: NEURAL ENHANCED -->
+                                <div class="video-canvas-layer pointer-events-none overflow-hidden" 
+                                     :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
+                                    <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
                                 </div>
-                            </div>
 
-                            <!-- 2X ZOOM BUTTON -->
-                            <div class="absolute bottom-3 right-3 z-30 pointer-events-auto">
-                                <button type="button" onclick="toggleZoomMode()" 
-                                        class="bg-white/95 hover:bg-white text-gray-900 text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg backdrop-blur-md flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95">
-                                    <span>🔍</span>
-                                    <span x-text="$store.isZoomed ? '1× Full View' : '2× Zoom Focus'"></span>
-                                </button>
+                                <!-- Center Split Divider Line -->
+                                <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
+                                    <div class="slider-handle-center font-bold">
+                                        <span>◀▶</span>
+                                    </div>
+                                </div>
+
+                                <!-- Header Badges -->
+                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
+                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Original (Raw)
+                                    </span>
+                                </div>
+                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
+                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Enhanced (AI)
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Real Interactive Timeline Scene Snapshots -->
+                        <!-- Timeline Scene Snapshots -->
                         <div class="w-full mt-3.5">
                             <div class="flex items-center justify-between text-[11px] text-gray-400 font-semibold mb-1.5 px-1">
                                 <span>Scene Timeline Snapshots</span>
@@ -264,7 +369,7 @@
 
                 </div>
 
-                <!-- Complete State: Truthful Quality Audit Card & Download -->
+                <!-- Complete State: Quality Audit Card & Download -->
                 <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
                     <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
@@ -311,9 +416,10 @@
         </div>
 
         <!-- ================================================================= -->
-        <!-- TAB 2: IMAGE UPSCALER (WITH BEFORE/AFTER SLIDER)                  -->
+        <!-- TAB 2: IMAGE UPSCALER (WITH NATIVE BEFORE/AFTER SPLIT SLIDER)     -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'image'">
+            
             <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
                 <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
                     <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,12 +435,14 @@
                 </button>
             </div>
 
+            <!-- Image Processing Spinner -->
             <div class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
                 <h3 class="text-lg font-bold text-gray-800">Upscaling Image with WebGPU</h3>
-                <p class="text-gray-400 text-sm mt-1">Executing neural convolutional pass...</p>
+                <p class="text-gray-400 text-sm mt-1">Applying sub-pixel neural reconstruction...</p>
             </div>
 
+            <!-- Image Error Panel -->
             <div class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.imageState === 'error'">
                 <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
                 <h3 class="text-lg font-bold text-gray-900 mb-2">Image Processing Error</h3>
@@ -344,98 +452,154 @@
                 </button>
             </div>
 
-            <!-- Image Preview Workspace -->
-            <div class="tjp-card rounded-2xl p-4 sm:p-6 max-w-2xl mx-auto" x-show="$store.imageState === 'preview'">
-                <div class="relative w-full flex justify-center bg-black/5 rounded-xl overflow-hidden p-2 mb-4 border border-gray-100">
-                    <canvas id="img-original-canvas" class="max-h-[380px] max-w-full rounded-lg object-contain"></canvas>
-                </div>
+            <!-- Image Workspace (WITH INTERACTIVE BEFORE/AFTER SLIDER LIKE NERO AI) -->
+            <div class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl max-w-4xl mx-auto" x-show="$store.imageState === 'preview'">
+                
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    
+                    <!-- LEFT COLUMN: LIVE IMAGE BEFORE / AFTER SPLIT SLIDER -->
+                    <div class="lg:col-span-7 flex flex-col items-center w-full">
+                        <div class="w-full split-slider-box flex justify-center items-center p-2">
+                            
+                            <div x-ref="imgBox" 
+                                 @mousedown="startImgDrag($event)" 
+                                 @touchstart="startImgDrag($event)"
+                                 class="relative overflow-hidden cursor-ew-resize user-select-none w-full h-[400px] flex justify-center items-center">
+                                
+                                <!-- ORIGINAL IMAGE (LEFT / BASE) -->
+                                <img :src="$store.originalImageUrl" 
+                                     class="w-full h-full object-contain pointer-events-none select-none">
+                                
+                                <!-- ENHANCED IMAGE (RIGHT / OVERLAY WITH CLIP-PATH) -->
+                                <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden flex justify-center items-center" 
+                                     :style="'clip-path: polygon(' + imgSliderPos + '% 0, 100% 0, 100% 100%, ' + imgSliderPos + '% 100%)'">
+                                    <img :src="$store.imageDownloadUrl || $store.originalImageUrl" 
+                                         class="w-full h-full object-contain pointer-events-none select-none">
+                                </div>
 
-                <div class="flex flex-wrap items-center justify-between gap-2 p-3 bg-gray-50 rounded-xl text-xs sm:text-sm border border-gray-100 mb-4">
-                    <span class="text-gray-500 font-medium truncate max-w-[200px]" x-text="$store.imageDownloadName"></span>
-                    <div class="flex items-center gap-2">
-                        <span class="text-gray-400 text-xs">Target:</span>
-                        <span class="bg-gray-200 text-gray-800 px-2.5 py-0.5 rounded font-mono font-bold text-xs">
-                            <span x-text="($store.imageWidth * $store.imageScale) + '×' + ($store.imageHeight * $store.imageScale)"></span>
-                        </span>
-                        <span class="bg-red-50 text-[#fd5d5d] px-2 py-0.5 rounded font-mono font-bold text-xs" x-text="$store.imageScale + '× Scale'"></span>
-                    </div>
-                </div>
+                                <!-- Center Split Divider Line -->
+                                <div class="slider-bar-rule" :style="'left: ' + imgSliderPos + '%'">
+                                    <div class="slider-handle-center font-bold">
+                                        <span>◀▶</span>
+                                    </div>
+                                </div>
 
-                <div class="mb-4">
-                    <label class="text-xs sm:text-sm font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 network-option">
-                        <div>
-                            <input type="radio" name="img-preset" id="p-photo" value="photo" onchange="updateImagePreset('photo')" checked>
-                            <label for="p-photo" class="block text-center text-xs py-2">📷 General Photo</label>
-                        </div>
-                        <div>
-                            <input type="radio" name="img-preset" id="p-portrait" value="portrait" onchange="updateImagePreset('portrait')">
-                            <label for="p-portrait" class="block text-center text-xs py-2">👤 Portrait & Face</label>
-                        </div>
-                        <div>
-                            <input type="radio" name="img-preset" id="p-anime" value="anime" onchange="updateImagePreset('anime')">
-                            <label for="p-anime" class="block text-center text-xs py-2">🎨 Anime / Art</label>
-                        </div>
-                        <div>
-                            <input type="radio" name="img-preset" id="p-text" value="text" onchange="updateImagePreset('text')">
-                            <label for="p-text" class="block text-center text-xs py-2">📝 Text & Logo</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100 mb-5">
-                    <div>
-                        <span class="text-xs sm:text-sm font-bold text-gray-800 block">Resolution Scale:</span>
-                        <span class="text-[11px] text-gray-400">Choose multiplier</span>
-                    </div>
-                    <div class="flex gap-2 network-option">
-                        <div>
-                            <input type="radio" name="img-scale" id="iscale-2x" value="2" onchange="updateImageScale(2)" checked>
-                            <label for="iscale-2x" class="px-3 py-1.5 text-xs font-bold text-[#fd5d5d]">2× HD</label>
-                        </div>
-                        <div>
-                            <input type="radio" name="img-scale" id="iscale-4x" value="4" onchange="updateImageScale(4)">
-                            <label for="iscale-4x" class="px-3 py-1.5 text-xs font-bold">4× Ultra HD</label>
+                                <!-- Header Badges -->
+                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
+                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Original
+                                    </span>
+                                </div>
+                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
+                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        AI Enhanced
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="flex flex-col sm:flex-row gap-3">
-                    <button type="button" class="btn tjp-btn-secondary py-3 px-5 rounded-xl font-bold text-sm" @click="$store.imageState = 'init'">
-                        Change Image
-                    </button>
-                    <button type="button" class="btn tjp-btn-primary flex-1 py-3 rounded-xl font-bold text-base" onclick="startImageUpscale()">
-                        Upscale Image Now
-                    </button>
-                </div>
-            </div>
-
-            <!-- Image Complete Screen: WITH BEFORE/AFTER SPLIT SLIDER -->
-            <div class="tjp-card rounded-2xl p-6 text-center max-w-2xl mx-auto" x-show="$store.imageState === 'complete'">
-                <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mx-auto mb-2">✓</div>
-                <h4 class="text-lg font-bold text-gray-900 mb-1">Image Upscaling Complete</h4>
-                <p class="text-gray-400 text-xs mb-4">Slide to compare raw original vs. enhanced output.</p>
-
-                <!-- Interactive Before / After Comparison Slider for Images -->
-                <div class="w-full flex justify-center mb-6">
-                    <div id="image-result-compare-outer">
-                        <div id="image-result-compare">
-                            <img :src="$store.originalImageUrl" alt="Original Image">
-                            <img :src="$store.imageDownloadUrl" alt="Upscaled Image">
+                                <!-- Header Badges -->
+                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
+                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        Original
+                                    </span>
+                                </div>
+                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
+                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                        AI Enhanced
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- RIGHT COLUMN: IMAGE CONTROLS -->
+                    <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
+                        
+                        <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Image Information</span>
+                            <div class="text-xs text-gray-800 font-semibold truncate mb-2" x-text="$store.imageDownloadName"></div>
+                            <div class="flex items-center gap-2 text-xs font-mono font-bold">
+                                <span class="text-gray-500" x-text="$store.imageWidth + '×' + $store.imageHeight"></span>
+                                <span class="text-gray-400">→</span>
+                                <span class="text-gray-900" x-text="($store.imageWidth * $store.imageScale) + '×' + ($store.imageHeight * $store.imageScale)"></span>
+                                <span class="text-[#fd5d5d] uppercase text-[10px]" x-text="'(' + $store.imageScale + '× Scale)'"></span>
+                            </div>
+                        </div>
+
+                        <!-- 4 Specialized AI Presets -->
+                        <div>
+                            <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
+                            <div class="grid grid-cols-2 gap-2 network-option">
+                                <div>
+                                    <input type="radio" name="img-preset" id="p-photo" value="photo" 
+                                           :checked="$store.imagePreset === 'photo'"
+                                           @change="updateImagePreset('photo')">
+                                    <label for="p-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="img-preset" id="p-portrait" value="portrait" 
+                                           :checked="$store.imagePreset === 'portrait'"
+                                           @change="updateImagePreset('portrait')">
+                                    <label for="p-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="img-preset" id="p-anime" value="anime" 
+                                           :checked="$store.imagePreset === 'anime'"
+                                           @change="updateImagePreset('anime')">
+                                    <label for="p-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="img-preset" id="p-text" value="text" 
+                                           :checked="$store.imagePreset === 'text'"
+                                           @change="updateImagePreset('text')">
+                                    <label for="p-text" class="block text-center text-xs py-2 cursor-pointer border-[#fd5d5d] text-[#fd5d5d]">📝 Text & Logo</label>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                <strong>Text & Logo:</strong> Designed specifically for ID cards, receipts, and screenshots with typography.
+                            </p>
+                        </div>
+
+                        <!-- Scale Selector (2x vs 4x) -->
+                        <div class="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+                            <div>
+                                <span class="text-xs font-bold text-gray-800 block">Resolution Multiplier:</span>
+                                <span class="text-[11px] text-gray-400">Scale factor</span>
+                            </div>
+                            <div class="flex gap-2 network-option">
+                                <div>
+                                    <input type="radio" name="img-scale" id="iscale-2x" value="2" 
+                                           :checked="$store.imageScale === 2"
+                                           @change="updateImageScale(2)">
+                                    <label for="iscale-2x" class="px-3 py-1.5 text-xs font-bold text-[#fd5d5d] cursor-pointer">2× HD</label>
+                                </div>
+                                <div>
+                                    <input type="radio" name="img-scale" id="iscale-4x" value="4" 
+                                           :checked="$store.imageScale === 4"
+                                           @change="updateImageScale(4)">
+                                    <label for="iscale-4x" class="px-3 py-1.5 text-xs font-bold cursor-pointer">4× Ultra HD</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="space-y-2 pt-2">
+                            <a :href="$store.imageDownloadUrl" :download="$store.imageDownloadName" class="w-full block" x-show="$store.imageDownloadUrl">
+                                <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg">
+                                    Download Enhanced Image (PNG)
+                                </button>
+                            </a>
+                            <button type="button" class="btn tjp-btn-secondary w-full py-2.5 rounded-xl font-bold text-xs" @click="$store.imageState = 'init'">
+                                Upload Another Image
+                            </button>
+                        </div>
+
+                    </div>
+
                 </div>
 
-                <div class="flex flex-col sm:flex-row gap-3 justify-center">
-                    <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl font-bold text-sm" @click="$store.imageState = 'init'">
-                        Upscale Another Image
-                    </button>
-                    <a :href="$store.imageDownloadUrl" :download="$store.imageDownloadName" class="w-full sm:w-auto">
-                        <button type="button" class="btn tjp-btn-primary px-8 py-2.5 rounded-xl font-bold text-sm w-full sm:w-auto">
-                            Download Enhanced Image (PNG)
-                        </button>
-                    </a>
-                </div>
             </div>
 
         </div>
