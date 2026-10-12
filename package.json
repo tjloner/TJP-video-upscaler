@@ -1,23 +1,23 @@
 {
-  "name": "free-video-upscaler",
-  "version": "0.1.0",
-  "description": "Free tool to upscale videos in the browser",
-  "main": "src/main.js",
+  "name": "tjp-ai-studio",
+  "version": "1.0.0",
+  "description": "Professional in-browser WebGPU video enhancement, Real-ESRGAN super-resolution, and AI voice clarity studio. 100% private, zero server footprint.",
+  "main": "src/index.ts",
   "scripts": {
-    "build": "webpack",
-    "serve": "webpack-dev-server",
+    "build": "webpack --mode production",
+    "serve": "webpack-dev-server --mode development",
     "type-check": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sb2702/free-ai-video-upscaler.git"
+    "url": "git+https://github.com/tjloner/TJP-video-upscaler.git"
   },
-  "author": "Sam Bhattacharyya",
+  "author": "TJ Promotions",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/sb2702/free-ai-video-upscaler/issues"
+    "url": "https://github.com/tjloner/TJP-video-upscaler/issues"
   },
-  "homepage": "https://github.com/sb2702/free-ai-video-upscaler#readme",
+  "homepage": "https://tjloner.github.io/TJP-video-upscaler/",
   "dependencies": {
     "@babel/core": "^7.1.6",
     "@popperjs/core": "^2.11.8",
@@ -27,15 +27,11 @@
     "bootstrap": "^5.3.2",
     "clean-webpack-plugin": "^4.0.0",
     "copy-webpack-plugin": "^11.0.0",
-    "grunt": "^1.6.1",
-    "grunt-aws-s3": "^2.0.2",
-    "grunt-cloudfront": "^0.2.2",
     "html-webpack-plugin": "^5.5.4",
-    "jquery": "^3.7.1",
     "mediabunny": "^1.27.0",
     "mp4-muxer": "^5.2.2",
     "mp4box": "^0.5.2",
-    "popper.js": "^1.16.1",
+    "onnxruntime-web": "^1.20.1",
     "style-loader": "^3.3.3",
     "web-demuxer": "4.0.0",
     "webpack": "^5.89.0",
