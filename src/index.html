@@ -1,695 +1,650 @@
-<!DOCTYPE html>
-<html lang="en">
+import Alpine from 'alpinejs';
+import { upscaleImage, ImageModelPreset } from './processors/image-processor';
+import { enhanceAudioFile } from './processors/audio-processor';
+import type { WorkerRequestMessage, EngineMode, VideoProfilePreset } from './types/worker-messages';
 
-<head>
-    <meta charset="UTF-8">
-    <meta content="TJP AI Studio - Professional AI Video Enhancer and Image Upscaler running locally on WebGPU." name="description">
-    <meta content="TJP AI Studio" property="og:title">
-    <meta content="Upscale and restore videos and images up to 4K UHD directly in your browser. 100% private, zero upload queues." property="og:description">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="icon" href="logo.svg">
-    <title>TJP Video & Image AI Studio — Professional In-Browser Upscaler</title>
+import 'bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import "./index.css";
 
-    <style>
-        .split-slider-box {
-            position: relative;
-            background: #090d16;
-            border-radius: 1rem;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 420px;
-            width: 100%;
-        }
-        .video-canvas-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: fill;
-        }
-        .slider-bar-rule {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: #ffffff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
-            pointer-events: none;
-            z-index: 30;
-        }
-        .slider-handle-center {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 32px;
-            height: 32px;
-            background: #ffffff;
-            border-radius: 50%;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            color: #111;
-            cursor: ew-resize;
-            pointer-events: all;
-            user-select: none;
-        }
-    </style>
-</head>
+const MAX_FILE_BLOB_SIZE = 1900 * 1024 * 1024;
 
-<body x-data="{ 
-    licenseModal: false, 
-    isPro: false, 
-    licenseKey: '',
-    sliderPos: 50, 
-    isDragging: false,
-    imgSliderPos: 50,
-    isImgDragging: false,
-    startDrag(e) { this.isDragging = true; this.updateSlider(e); },
-    stopDrag() { this.isDragging = false; },
-    updateSlider(e) {
-        if (!this.isDragging && e.type !== 'click') return;
-        const frame = $refs.activeVideoFrame;
-        if (!frame) return;
-        const rect = frame.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
-        this.sliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
-    },
-    startImgDrag(e) { this.isImgDragging = true; this.updateImgSlider(e); },
-    stopImgDrag() { this.isImgDragging = false; },
-    updateImgSlider(e) {
-        if (!this.isImgDragging && e.type !== 'click') return;
-        const box = $refs.imgBox;
-        if (!box) return;
-        const rect = box.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
-        this.imgSliderPos = Math.max(0, Math.min(100, Math.round((x / rect.width) * 100)));
+const worker = new Worker(new URL('./worker.ts', import.meta.url));
+
+let upscaled_canvas: HTMLCanvasElement;
+let original_canvas: HTMLCanvasElement;
+let video: HTMLVideoElement;
+let download_name: string;
+let inputFileHandle: FileSystemFileHandle;
+let isOffscreenTransferred = false;
+let wakeLockSentinel: any = null;
+
+let activeImageBitmap: ImageBitmap | null = null;
+let originalImageSrcUrl: string = '';
+let currentUpscaledBlobUrl: string = '';
+let imageDownloadName = "enhanced-image.png";
+
+export interface ResolutionTargetOption {
+    label: string;
+    targetWidth: number;
+    targetHeight: number;
+    scale: number;
+    bitrate: number;
+    tag: string;
+}
+
+declare global {
+    interface Window {
+        chooseFile: (e?: Event) => Promise<void>;
+        initRecording: () => Promise<void>;
+        selectTargetResolution: (index: number) => void;
+        selectEngineMode: (mode: EngineMode) => void;
+        selectVideoProfile: (profile: VideoProfilePreset) => void;
+        seekToTimestamp: (timeSeconds: number) => void;
+        toggleZoomMode: () => void;
+        togglePause: () => void;
+        showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
+        showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
+        switchAppMode: (mode: 'video' | 'image' | 'audio') => void;
+        chooseImageFile: (e?: Event) => Promise<void>;
+        startImageUpscale: () => Promise<void>;
+        updateImageScale: (scale: number) => void;
+        updateImagePreset: (preset: ImageModelPreset) => void;
+        chooseAudioFile: (e?: Event) => Promise<void>;
     }
-}" 
-@mouseup="stopDrag(); stopImgDrag();" 
-@touchend="stopDrag(); stopImgDrag();" 
-@mousemove="updateSlider($event); updateImgSlider($event);" 
-@touchmove="updateSlider($event); updateImgSlider($event);"
-style="display: none;" 
-class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+}
 
-<div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
+document.addEventListener("DOMContentLoaded", index);
 
-<div class="w-full flex-grow flex flex-col justify-start py-6 sm:py-8">
+async function index(): Promise<void> {
+    // Video Stores
+    Alpine.store('appMode', 'video');
+    Alpine.store('state', 'init');
+    Alpine.store('target', 'blob');
+    Alpine.store('download_url', '');
+    Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
+    Alpine.store('selectedOptionIndex', 0);
+    Alpine.store('engineMode', 'deep');
+    Alpine.store('videoProfile', 'photo' as VideoProfilePreset);
+    Alpine.store('proTipMessage', '');
+    Alpine.store('isZoomed', false);
+    Alpine.store('activeSnapshotTime', 0);
+    Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
+    Alpine.store('width', 0);
+    Alpine.store('height', 0);
+    Alpine.store('progress', 0);
+    Alpine.store('eta', '');
+    Alpine.store('size', '');
+    Alpine.store('filename', '');
+    Alpine.store('error', '');
+
+    // Image Stores
+    Alpine.store('imageState', 'init');
+    Alpine.store('imageScale', 4);
+    Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
+    Alpine.store('imageWidth', 0);
+    Alpine.store('imageHeight', 0);
+    Alpine.store('imageDownloadUrl', '');
+    Alpine.store('originalImageUrl', '');
+    Alpine.store('imageDownloadName', '');
+    Alpine.store('imageError', '');
+    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details');
+    Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
+    Alpine.store('imageProgress', 0);
+
+    // Audio Stores
+    Alpine.store('audioState', 'init');
+    Alpine.store('audioFileName', '');
+    Alpine.store('audioDuration', '');
+    Alpine.store('audioDownloadUrl', '');
+    Alpine.store('audioDownloadName', '');
+    Alpine.store('audioProgress', 0);
+    Alpine.store('audioProgressMessage', '');
+
+    Alpine.start();
+    document.body.style.display = "block";
+
+    upscaled_canvas = document.getElementById("upscaled") as HTMLCanvasElement;
+    original_canvas = document.getElementById('original') as HTMLCanvasElement;
+
+    if (!("VideoEncoder" in window)) return showUnsupported("WebCodecs API");
+    if (!window.showSaveFilePicker) return showUnsupported("File System Access API");
+
+    worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
-    <!-- Top Header -->
-    <header class="w-full text-center px-4 mb-4">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-50 text-[#fd5d5d] text-xs font-bold tracking-wide uppercase mb-2 border border-red-100">
-            <span class="w-2 h-2 rounded-full bg-[#fd5d5d] animate-pulse"></span>
-            100% Private • Local GPU Processing
-        </div>
-        <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
-            TJP <span style="color: #fd5d5d;">AI Studio</span>
-        </h1>
-        <p class="text-gray-500 text-xs sm:text-sm mt-1 max-w-xl mx-auto">
-            Professional in-browser video enhancement and image super-resolution. Zero cloud queues, runs locally on your graphics card.
-        </p>
+    // Global bindings
+    window.chooseFile = chooseFile;
+    window.switchAppMode = switchAppMode;
+    window.chooseImageFile = chooseImageFile;
+    window.chooseAudioFile = chooseAudioFile;
+    window.startImageUpscale = triggerInstantImageEnhance;
+    window.updateImageScale = async (scale: number) => {
+        Alpine.store('imageScale', scale);
+        await triggerInstantImageEnhance();
+    };
+    window.updateImagePreset = async (preset: ImageModelPreset) => {
+        Alpine.store('imagePreset', preset);
+        await triggerInstantImageEnhance();
+    };
+    window.toggleZoomMode = () => {
+        const nextZoom = !Alpine.store('isZoomed');
+        Alpine.store('isZoomed', nextZoom);
+    };
+}
 
-        <!-- Pro Status Pill -->
-        <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
-            <template x-if="isPro">
-                <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                    ✓ Pro Membership Active
-                </span>
-            </template>
-            <template x-if="!isPro">
-                <button type="button" @click="licenseModal = true" class="text-gray-500 hover:text-[#fd5d5d] font-semibold underline transition-colors">
-                    Have a Pro License Key? Click here
-                </button>
-            </template>
-        </div>
-    </header>
+function showUnsupported(text: string): void {
+    Alpine.store('component', text);
+    Alpine.store('state', 'unsupported');
+}
 
-    <!-- Top Mode Switcher (Video vs Image) -->
-    <div class="flex justify-center mb-6 px-4">
-        <div class="bg-gray-200 p-1 rounded-2xl inline-flex gap-1 shadow-inner">
-            <button type="button" 
-                    @click="$store.appMode = 'video'; switchAppMode('video')"
-                    :class="$store.appMode === 'video' ? 'bg-white shadow text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-900 font-medium'"
-                    class="px-5 py-2 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
-                <span>🎬</span> Video Enhancer
-            </button>
-            <button type="button" 
-                    @click="$store.appMode = 'image'; switchAppMode('image')"
-                    :class="$store.appMode === 'image' ? 'bg-white shadow text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-900 font-medium'"
-                    class="px-5 py-2 rounded-xl text-xs sm:text-sm transition-all flex items-center gap-2">
-                <span>🖼️</span> Image Upscaler
-            </button>
-        </div>
-    </div>
+function switchAppMode(mode: 'video' | 'image' | 'audio'): void {
+    Alpine.store('appMode', mode);
+}
 
-    <!-- Main Workspace Container -->
-    <main class="w-full max-w-5xl px-4 mx-auto">
+function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTargetOption[] {
+    const isPortrait = inH > inW;
+    const shortEdge = Math.min(inW, inH);
+    const aspect = isPortrait ? inH / inW : inW / inH;
 
-        <!-- ================================================================= -->
-        <!-- TAB 1: VIDEO ENHANCER                                             -->
-        <!-- ================================================================= -->
-        <div x-show="$store.appMode === 'video'">
-            
-            <div id="unsupported-panel" class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'unsupported'">
-                <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 text-xl font-bold">⚠️</div>
-                <h3 class="text-xl font-bold text-gray-900 mb-2">WebGPU Acceleration Required</h3>
-                <p class="text-gray-600 text-sm mb-4">
-                    Your browser does not support <span x-text="$store.component" class="font-mono bg-red-50 text-red-600 px-2 py-0.5 rounded font-bold"></span>.
-                </p>
-                <p class="text-xs text-gray-400">
-                    Please use the latest version of <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> with hardware acceleration enabled.
-                </p>
-            </div>
+    const makeRes = (targetShortEdge: number, label: string, tag: string, bitrate: number): ResolutionTargetOption => {
+        let tW = isPortrait ? targetShortEdge : Math.round(targetShortEdge * aspect);
+        let tH = isPortrait ? Math.round(targetShortEdge * aspect) : targetShortEdge;
+        tW = Math.floor(tW / 2) * 2;
+        tH = Math.floor(tH / 2) * 2;
+        const scale = Number((tW / inW).toFixed(2));
+        return { label, targetWidth: tW, targetHeight: tH, scale, bitrate, tag };
+    };
 
-            <div id="file-load-panel" class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.state === 'init'">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
-                    <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                </div>
-                <h2 class="text-2xl font-bold text-gray-900 mb-2">Select a video to enhance</h2>
-                <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Supports 360p, 480p, 720p, and 1080p clips up to 4K UHD. Runs locally on your GPU with total privacy.
-                </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseFile(this)">
-                    Select Video File
-                </button>
-            </div>
+    if (shortEdge <= 540) {
+        Alpine.store('proTipMessage', 'Upscaling to 1080p recovers sharp text and sub-pixel edge definition.');
+        return [
+            makeRes(720, '720p HD', '2× HD', 7.5e6),
+            makeRes(1080, '1080p Full HD', '3× Full HD', 11.0e6)
+        ];
+    } else if (shortEdge <= 800) {
+        Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
+        return [
+            makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
+            makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
+            makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
+        ];
+    } else if (shortEdge <= 1200) {
+        Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
+        return [
+            makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
+            makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
+        ];
+    } else {
+        Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
+        return [
+            makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 24.0e6)
+        ];
+    }
+}
 
-            <div id="loading-panel" class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.state === 'loading'">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800">Calibrating Pipelines</h3>
-                <p class="text-gray-400 text-sm mt-1">Decoding frames and setting up WebGPU neural shaders...</p>
-            </div>
+async function chooseFile(e?: Event): Promise<void> {
+    try {
+        const [fileHandle] = await window.showOpenFilePicker({
+            types: [{
+                description: 'Video Files',
+                accept: { 'video/mp4': ['.mp4'] }
+            }],
+            multiple: false
+        });
+        await loadVideo(fileHandle);
+    } catch {
+        console.log('Video selection cancelled');
+    }
+}
 
-            <div id="error-panel" class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'error'">
-                <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
-                <h3 class="text-lg font-bold text-gray-900 mb-2">Processing Notification</h3>
-                <div class="bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm p-4 rounded-xl mb-5 text-left leading-relaxed" x-text="$store.error"></div>
-                <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl text-sm font-semibold" onclick="location.reload();">
-                    Try Another Video
-                </button>
-            </div>
+async function loadVideo(fileHandle: FileSystemFileHandle): Promise<void> {
+    Alpine.store('state', 'loading');
+    inputFileHandle = fileHandle;
 
-            <!-- 2-COLUMN STUDIO WORKSPACE -->
-            <div id="start-panel" class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl" x-show="$store.state === 'preview' || $store.state === 'processing' || $store.state === 'complete' || $store.state === 'paused'">
-                
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    
-                    <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
-                    <div class="lg:col-span-7 flex flex-col items-center w-full">
-                        
-                        <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative" style="height: 440px;">
-                            
-                            <!-- 2X ZOOM & CONTROLS TOOLBAR -->
-                            <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
-                                <button type="button" 
-                                        @click="toggleZoomMode()"
-                                        :class="$store.isZoomed ? 'bg-[#fd5d5d] text-white border-[#fd5d5d]' : 'bg-black/70 text-white border-white/20 hover:bg-black'"
-                                        class="px-2.5 py-1 rounded-lg text-xs font-bold border backdrop-blur-md transition-all flex items-center gap-1.5 shadow-md">
-                                    <span>🔍</span> <span x-text="$store.isZoomed ? '2× Zoom ON' : '1× Fit'"></span>
-                                </button>
-                            </div>
+    const file = await fileHandle.getFile();
 
-                            <div class="w-full h-full flex justify-center items-center overflow-hidden pointer-events-auto">
-                                <div x-ref="activeVideoFrame" 
-                                     id="player-frame" 
-                                     @mousedown="startDrag($event)" 
-                                     @touchstart="startDrag($event)"
-                                     :class="$store.isZoomed ? 'scale-[2.0] cursor-grab' : 'scale-100 cursor-ew-resize'"
-                                     class="relative overflow-hidden user-select-none transition-transform duration-200 ease-out origin-center">
-                                    
-                                    <!-- LEFT LAYER: RAW ORIGINAL -->
-                                    <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
-                                    
-                                    <!-- RIGHT LAYER: NEURAL ENHANCED -->
-                                    <div class="video-canvas-layer pointer-events-none overflow-hidden" 
-                                         :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
-                                        <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
-                                    </div>
+    if (file.size === 0) {
+        return showError("The selected video file is empty.");
+    }
 
-                                    <!-- Center Split Divider Line -->
-                                    <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
-                                        <div class="slider-handle-center font-bold">
-                                            <span>◀▶</span>
-                                        </div>
-                                    </div>
+    download_name = file.name.split(".")[0] + "-TJP-ENHANCED.mp4";
+    Alpine.store('download_name', download_name);
+    Alpine.store('filename', file.name);
 
-                                    <!-- Header Badges -->
-                                    <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                        <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                            Original (Raw)
-                                        </span>
-                                    </div>
-                                    <div class="absolute top-3 left-28 z-30 pointer-events-none">
-                                        <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                            Enhanced (AI)
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+    const arrayBuffer = await file.arrayBuffer();
+    await setupPreview(arrayBuffer);
+}
 
-                        <!-- Timeline Scene Snapshots -->
-                        <div class="w-full mt-3.5">
-                            <div class="flex items-center justify-between text-[11px] text-gray-400 font-semibold mb-1.5 px-1">
-                                <span>Scene Timeline Snapshots</span>
-                                <span>Click timestamp to seek & preview</span>
-                            </div>
-                            <div class="flex gap-2 overflow-x-auto pb-1">
-                                <template x-for="(snap, idx) in $store.timelineSnapshots" :key="idx">
-                                    <button type="button" @click="seekToTimestamp(snap.time)"
-                                            :class="$store.activeSnapshotTime === snap.time ? 'border-[#fd5d5d] bg-red-50 text-[#fd5d5d]' : 'border-gray-200 bg-gray-100 text-gray-700'"
-                                            class="flex-1 py-1.5 px-2 border rounded-lg text-xs font-mono font-bold transition-all text-center">
-                                        <span x-text="snap.label"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
+async function setupPreview(data: ArrayBuffer): Promise<void> {
+    const host = document.getElementById('hidden-video-host');
+    if (host) host.innerHTML = '';
 
-                    </div>
+    video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
 
-                    <!-- RIGHT COLUMN: STUDIO CONTROL DECK -->
-                    <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
-                        
-                        <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Resolution Mapping</span>
-                                <span class="bg-red-50 text-[#fd5d5d] px-2 py-0.5 rounded font-mono font-bold text-xs" x-text="$store.size"></span>
-                            </div>
-                            <div class="text-xs text-gray-800 font-semibold truncate mb-1" x-text="$store.filename"></div>
-                            <div class="flex items-center gap-2 text-xs font-mono font-bold">
-                                <span class="text-gray-500" x-text="$store.width + '×' + $store.height"></span>
-                                <span class="text-gray-400">→</span>
-                                <span class="text-gray-900" x-text="$store.availableOptions[$store.selectedOptionIndex]?.targetWidth + '×' + $store.availableOptions[$store.selectedOptionIndex]?.targetHeight"></span>
-                                <span class="text-[#fd5d5d] uppercase text-[10px]" x-text="'(' + ($store.availableOptions[$store.selectedOptionIndex]?.label || '') + ')'"></span>
-                            </div>
-                        </div>
+    if (host) host.appendChild(video);
 
-                        <!-- Video Enhancement Profile Selection -->
-                        <div>
-                            <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-photo" value="photo" 
-                                           :checked="$store.videoProfile === 'photo'"
-                                           @change="selectVideoProfile('photo')">
-                                    <label for="vp-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-portrait" value="portrait" 
-                                           :checked="$store.videoProfile === 'portrait'"
-                                           @change="selectVideoProfile('portrait')">
-                                    <label for="vp-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-anime" value="anime" 
-                                           :checked="$store.videoProfile === 'anime'"
-                                           @change="selectVideoProfile('anime')">
-                                    <label for="vp-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-text" value="text" 
-                                           :checked="$store.videoProfile === 'text'"
-                                           @change="selectVideoProfile('text')">
-                                    <label for="vp-text" class="block text-center text-xs py-2 cursor-pointer border-[#fd5d5d] text-[#fd5d5d]">📝 Text & Logo</label>
-                                </div>
-                            </div>
-                        </div>
+    const fileBlob = new Blob([data], { type: "video/mp4" });
+    video.src = URL.createObjectURL(fileBlob);
 
-                        <!-- Processing Engine Switcher -->
-                        <div>
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
-                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Fast Turbo'"></span>
-                            </div>
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
-                                    <label for="eng-fast" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
-                                        <span>⚡ Fast Turbo</span>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~15–20 FPS (Fast)</span>
-                                    </label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="engine-mode" id="eng-deep" value="deep" :checked="$store.engineMode === 'deep'" @change="selectEngineMode('deep')">
-                                    <label for="eng-deep" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all border-[#fd5d5d] text-[#fd5d5d]">
-                                        <span>🧠 Deep AI</span>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">Sub-Pixel Detail</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
+    video.onerror = function () {
+        showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
+    };
 
-                        <!-- Target Resolution Selection Pills -->
-                        <div>
-                            <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">
-                                <template x-for="(opt, idx) in $store.availableOptions" :key="idx">
-                                    <div>
-                                        <input type="radio" name="res-target" :id="'opt-' + idx" :value="idx" :checked="$store.selectedOptionIndex === idx" @change="selectTargetResolution(idx)">
-                                        <label :for="'opt-' + idx" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
-                                            <span x-text="opt.label" class="block"></span>
-                                            <span class="text-[10px] opacity-75 font-normal block" x-text="opt.tag"></span>
-                                        </label>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
+    video.onloadeddata = async function () {
+        const vWidth = video.videoWidth || 640;
+        const vHeight = video.videoHeight || 360;
 
-                        <div x-show="$store.proTipMessage" class="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-snug">
-                            💡 <strong>Tip:</strong> <span x-text="$store.proTipMessage"></span>
-                        </div>
+        Alpine.store('width', vWidth);
+        Alpine.store('height', vHeight);
 
-                        <!-- Action Buttons -->
-                        <div class="pt-2">
-                            <div class="flex flex-col gap-2.5" x-show="$store.state === 'preview'">
-                                <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="initRecording()">
-                                    Start Upscaling Video
-                                </button>
-                                <button type="button" class="btn tjp-btn-secondary w-full py-2 rounded-xl font-bold text-xs" onclick="location.reload();">
-                                    Change Video File
-                                </button>
-                            </div>
+        const playerFrame = document.getElementById('player-frame');
+        const isPortrait = vHeight > vWidth;
+        const targetBoxHeight = 420;
+        
+        let displayWidth: number;
+        let displayHeight: number;
 
-                            <!-- Processing Progress Bar -->
-                            <div x-show="$store.state === 'processing' || $store.state === 'paused'" class="space-y-3">
-                                <div class="flex justify-between items-center text-xs font-semibold text-gray-700">
-                                    <span>Processing Frames...</span>
-                                    <span class="font-mono text-[#fd5d5d]" x-text="$store.eta"></span>
-                                </div>
-                                <div class="w-full bg-gray-100 h-3 rounded-full overflow-hidden p-0.5 border border-gray-200">
-                                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" x-bind:style="{ width: $store.progress + '%' }"></div>
-                                </div>
-                                <div class="flex justify-between items-center pt-1">
-                                    <span class="text-xs text-gray-400 font-mono" x-text="$store.progress + '% complete'"></span>
-                                    <div class="flex gap-2">
-                                        <button type="button" class="btn tjp-btn-secondary px-3 py-1 rounded-lg text-xs font-bold" onclick="togglePause()" x-text="$store.state === 'paused' ? 'Resume' : 'Pause'">
-                                        </button>
-                                        <button type="button" class="btn btn-outline-danger px-3 py-1 rounded-lg text-xs font-bold" onclick="location.reload();">
-                                            Cancel
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+        if (isPortrait) {
+            displayHeight = targetBoxHeight;
+            displayWidth = Math.round(targetBoxHeight * (vWidth / vHeight));
+        } else {
+            const containerMaxW = 540;
+            displayHeight = Math.min(targetBoxHeight, Math.round(containerMaxW * (vHeight / vWidth)));
+            displayWidth = Math.round(displayHeight * (vWidth / vHeight));
+        }
 
-                    </div>
+        if (playerFrame) {
+            playerFrame.style.width = `${displayWidth}px`;
+            playerFrame.style.height = `${displayHeight}px`;
+            playerFrame.style.minWidth = `${displayWidth}px`;
+            playerFrame.style.minHeight = `${displayHeight}px`;
+        }
 
-                </div>
+        if (upscaled_canvas && original_canvas) {
+            upscaled_canvas.width = vWidth * 2;
+            upscaled_canvas.height = vHeight * 2;
+            original_canvas.width = vWidth * 2;
+            original_canvas.height = vHeight * 2;
+        }
 
-                <!-- Complete State: Audit Card & Download -->
-                <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
-                    <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
-                    <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
-                    <p class="text-gray-400 text-xs mb-4">Exported with dedicated WebGPU pipelines and 1:1 frame integrity.</p>
-                    
-                    <div x-show="$store.report" class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-4 my-2 text-left shadow-sm">
-                        <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Signal & Frame Audit</span>
-                            <span class="text-xs font-extrabold px-2 py-0.5 rounded font-mono bg-emerald-100 text-emerald-700"
-                                  x-text="$store.report?.status === 'PASSED' ? '✓ 100% 1:1 PRESERVED' : 'VALIDATION FAILED'">
-                            </span>
-                        </div>
+        const dur = video.duration || 10;
+        const snapTimes = [
+            Math.min(1.8, Math.max(0.8, dur * 0.15)),
+            Math.min(dur * 0.35, Math.max(1.0, dur - 0.5)),
+            Math.min(dur * 0.55, Math.max(1.5, dur - 0.5)),
+            Math.min(dur * 0.75, Math.max(2.0, dur - 0.5)),
+            Math.min(dur * 0.90, Math.max(2.5, dur - 0.5))
+        ];
 
-                        <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 py-3 font-mono">
-                            <div>Resolution: <strong class="text-slate-900" x-text="$store.report?.resolution"></strong></div>
-                            <div>Output Bitrate: <strong class="text-slate-900" x-text="$store.report?.bitrateMbps + ' Mbps'"></strong></div>
-                            <div>Frame Count: <strong class="text-slate-900" x-text="$store.report?.outputFrames + ' / ' + $store.report?.inputFrames"></strong></div>
-                            <div>A/V Sync Delta: <strong class="text-emerald-600" x-text="'±' + $store.report?.avSyncDeltaMs + 'ms'"></strong></div>
-                        </div>
+        const snapshots = [
+            { time: snapTimes[0], label: formatTime(snapTimes[0]) },
+            { time: snapTimes[1], label: formatTime(snapTimes[1]) },
+            { time: snapTimes[2], label: formatTime(snapTimes[2]) },
+            { time: snapTimes[3], label: formatTime(snapTimes[3]) },
+            { time: snapTimes[4], label: formatTime(snapTimes[4]) }
+        ];
+        Alpine.store('timelineSnapshots', snapshots);
+        Alpine.store('activeSnapshotTime', snapTimes[0]);
 
-                        <div class="text-[11px] text-slate-500 border-t border-slate-100 pt-2 space-y-1">
-                            <template x-for="stage in $store.report?.stagesExecuted">
-                                <div class="flex items-center gap-1.5">
-                                    <span class="text-emerald-500 font-bold">✓</span> <span x-text="stage"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
+        video.onseeked = async () => {
+            await new Promise(r => setTimeout(r, 60));
+            await captureAndSendPreviewFrame();
+        };
 
-                    <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto mt-4">
-                        <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl font-bold text-sm" onclick="location.reload();">
-                            Upscale Another Video
-                        </button>
-                        <a x-bind:href="$store.download_url" x-bind:download="$store.download_name" class="w-full sm:w-auto" x-show="$store.download_url">
-                            <button type="button" class="btn tjp-btn-primary px-8 py-2.5 rounded-xl font-bold text-sm w-full sm:w-auto">
-                                Download Enhanced Video
-                            </button>
-                        </a>
-                    </div>
-                </div>
+        video.currentTime = snapTimes[0];
 
-            </div>
+        setTimeout(async () => {
+            if (Alpine.store('state') === 'loading') {
+                await captureAndSendPreviewFrame();
+            }
+        }, 800);
 
-        </div>
+        window.seekToTimestamp = function (timeSec: number) {
+            if (Alpine.store('state') === 'processing') return;
+            Alpine.store('activeSnapshotTime', timeSec);
+            video.currentTime = timeSec;
+        };
 
-        <!-- ================================================================= -->
-        <!-- TAB 2: IMAGE UPSCALER                                             -->
-        <!-- ================================================================= -->
-        <div x-show="$store.appMode === 'image'">
-            
-            <!-- Step 1: Initial Upload Card -->
-            <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
-                    <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                </div>
-                <h2 class="text-2xl font-bold text-gray-900 mb-2">Select an image to upscale</h2>
-                <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Supports PNG, JPG, JPEG, and WebP. Reconstruct photos, portraits, anime art, and text logos with Real-ESRGAN machine learning on your GPU.
-                </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseImageFile(this)">
-                    Select Image File
-                </button>
-            </div>
+        window.selectEngineMode = function (mode: EngineMode) {
+            Alpine.store('engineMode', mode);
+        };
 
-            <!-- Step 2: Processing Spinner with Live Progress Details -->
-            <div class="tjp-card rounded-2xl p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800" x-text="$store.imageStatusTitle || 'Upscaling Image with WebGPU'"></h3>
-                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.imageProgressMessage || 'Applying neural reconstruction...'"></p>
+        window.selectVideoProfile = async function (profile: VideoProfilePreset) {
+            Alpine.store('videoProfile', profile);
+            await captureAndSendPreviewFrame();
+        };
 
-                <!-- Live ML Progress Bar -->
-                <div class="w-full max-w-xs bg-gray-100 h-2.5 rounded-full overflow-hidden mt-4 border border-gray-200">
-                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" :style="'width: ' + ($store.imageProgress || 10) + '%'"></div>
-                </div>
-                <span class="text-[10px] text-gray-400 mt-1.5 font-mono" x-text="($store.imageProgress || 0) + '%'"></span>
-            </div>
+        window.togglePause = function () {
+            const currentState = Alpine.store('state');
+            if (currentState === 'processing') {
+                worker.postMessage({ cmd: 'pause' } satisfies WorkerRequestMessage);
+            } else if (currentState === 'paused') {
+                worker.postMessage({ cmd: 'resume' } satisfies WorkerRequestMessage);
+            }
+        };
+    };
 
-            <!-- Step 3: Error Panel -->
-            <div class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.imageState === 'error'">
-                <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
-                <h3 class="text-lg font-bold text-gray-900 mb-2">Image Processing Error</h3>
-                <div class="bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm p-4 rounded-xl mb-5 text-left leading-relaxed" x-text="$store.imageError"></div>
-                <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl text-sm font-semibold" @click="$store.imageState = 'init'">
-                    Try Another Image
-                </button>
-            </div>
+    async function captureAndSendPreviewFrame() {
+        if (Alpine.store('state') !== 'processing') {
+            window.initRecording = initRecording;
 
-            <!-- Step 4: Full Image Studio Workspace -->
-            <div class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl max-w-5xl mx-auto" x-show="$store.imageState === 'preview'">
-                
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    
-                    <!-- LEFT COLUMN: LIVE BEFORE/AFTER SPLIT SLIDER -->
-                    <div class="lg:col-span-7 flex flex-col items-center w-full">
-                        <div class="w-full split-slider-box flex justify-center items-center p-2">
-                            
-                            <div x-ref="imgBox" 
-                                 @mousedown="startImgDrag($event)" 
-                                 @touchstart="startImgDrag($event)"
-                                 class="relative overflow-hidden cursor-ew-resize user-select-none w-full h-[400px] flex justify-center items-center">
-                                
-                                <!-- ORIGINAL IMAGE (LEFT) -->
-                                <img :src="$store.originalImageUrl" 
-                                     class="w-full h-full object-contain pointer-events-none select-none">
-                                
-                                <!-- ENHANCED IMAGE (RIGHT WITH DYNAMIC CLIP PATH) -->
-                                <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden flex justify-center items-center" 
-                                     :style="'clip-path: polygon(' + imgSliderPos + '% 0, 100% 0, 100% 100%, ' + imgSliderPos + '% 100%)'">
-                                    <img :src="$store.imageDownloadUrl" 
-                                         class="w-full h-full object-contain pointer-events-none select-none">
-                                </div>
+            const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
+            Alpine.store('availableOptions', options);
 
-                                <!-- Slider Divider Bar -->
-                                <div class="slider-bar-rule" :style="'left: ' + imgSliderPos + '%'">
-                                    <div class="slider-handle-center font-bold">
-                                        <span>◀▶</span>
-                                    </div>
-                                </div>
+            if (!Alpine.store('selectedOptionIndex')) {
+                Alpine.store('selectedOptionIndex', options.length - 1);
+            }
 
-                                <!-- Header Badges -->
-                                <div class="absolute top-3 left-3 z-30 pointer-events-none">
-                                    <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        Original
-                                    </span>
-                                </div>
-                                <div class="absolute top-3 right-3 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                        AI Enhanced
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+            window.selectTargetResolution = function (index: number): void {
+                Alpine.store('selectedOptionIndex', index);
+                const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
+                if (opt) {
+                    const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+                    Alpine.store('size', humanFileSize(estimated_size));
+                }
+            };
 
-                    <!-- RIGHT COLUMN: IMAGE CONTROLS -->
-                    <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
-                        
-                        <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1">Image Information</span>
-                            <div class="text-xs text-gray-800 font-semibold truncate mb-2" x-text="$store.imageDownloadName"></div>
-                            <div class="flex items-center gap-2 text-xs font-mono font-bold">
-                                <span class="text-gray-500" x-text="$store.imageWidth + '×' + $store.imageHeight"></span>
-                                <span class="text-gray-400">→</span>
-                                <span class="text-gray-900" x-text="($store.imageWidth * $store.imageScale) + '×' + ($store.imageHeight * $store.imageScale)"></span>
-                                <span class="text-[#fd5d5d] uppercase text-[10px]" x-text="'(' + $store.imageScale + '× Scale)'"></span>
-                            </div>
-                        </div>
+            const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
+            const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+            Alpine.store('size', humanFileSize(estimated_size));
 
-                        <!-- 5 Specialized AI Presets (Including Real-ESRGAN) -->
-                        <div>
-                            <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
-                            
-                            <!-- Ultra AI Real-ESRGAN Featured Banner Button -->
-                            <div class="mb-2">
-                                <button type="button" 
-                                        @click="updateImagePreset('ultra')"
-                                        :class="$store.imagePreset === 'ultra' ? 'bg-[#fd5d5d] text-white shadow-md border-[#fd5d5d]' : 'bg-red-50 text-[#fd5d5d] border-red-200 hover:bg-red-100'"
-                                        class="w-full py-2.5 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition-all">
-                                    <span>✨ Ultra AI (Real-ESRGAN)</span>
-                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full" :class="$store.imagePreset === 'ultra' ? 'bg-white/20' : 'bg-[#fd5d5d]/10'">Deep ML</span>
-                                </button>
-                            </div>
+            Alpine.store('target', 'blob');
+            Alpine.store('state', 'preview');
+        }
 
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-photo" value="photo" 
-                                           :checked="$store.imagePreset === 'photo'"
-                                           @change="updateImagePreset('photo')">
-                                    <label for="p-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-portrait" value="portrait" 
-                                           :checked="$store.imagePreset === 'portrait'"
-                                           @change="updateImagePreset('portrait')">
-                                    <label for="p-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-anime" value="anime" 
-                                           :checked="$store.imagePreset === 'anime'"
-                                           @change="updateImagePreset('anime')">
-                                    <label for="p-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-text" value="text" 
-                                           :checked="$store.imagePreset === 'text'"
-                                           @change="updateImagePreset('text')">
-                                    <label for="p-text" class="block text-center text-xs py-2 cursor-pointer">📝 Text & Logo</label>
-                                </div>
-                            </div>
-                        </div>
+        try {
+            const w = video.videoWidth || 640;
+            const h = video.videoHeight || 360;
+            const currentProfile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
 
-                        <!-- Scale Selector (2x vs 4x) -->
-                        <div class="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100">
-                            <div>
-                                <span class="text-xs font-bold text-gray-800 block">Resolution Multiplier:</span>
-                                <span class="text-[11px] text-gray-400">Scale factor</span>
-                            </div>
-                            <div class="flex gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="img-scale" id="iscale-2x" value="2" 
-                                           :checked="$store.imageScale === 2"
-                                           @change="updateImageScale(2)">
-                                    <label for="iscale-2x" class="px-3 py-1.5 text-xs font-bold text-[#fd5d5d] cursor-pointer">2× HD</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-scale" id="iscale-4x" value="4" 
-                                           :checked="$store.imageScale === 4"
-                                           @change="updateImageScale(4)">
-                                    <label for="iscale-4x" class="px-3 py-1.5 text-xs font-bold cursor-pointer">4× Ultra HD</label>
-                                </div>
-                            </div>
-                        </div>
+            const frameBitmap = await createImageBitmap(video);
 
-                        <!-- Action Buttons -->
-                        <div class="space-y-2 pt-2">
-                            <a :href="$store.imageDownloadUrl" :download="$store.imageDownloadName" class="w-full block" x-show="$store.imageDownloadUrl">
-                                <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg">
-                                    Download Enhanced Image (PNG)
-                                </button>
-                            </a>
-                            <button type="button" class="btn tjp-btn-secondary w-full py-2.5 rounded-xl font-bold text-xs" @click="$store.imageState = 'init'">
-                                Upload Another Image
-                            </button>
-                        </div>
+            if (!isOffscreenTransferred) {
+                const upscaled = upscaled_canvas.transferControlToOffscreen();
+                const original = original_canvas.transferControlToOffscreen();
+                isOffscreenTransferred = true;
 
-                    </div>
+                worker.postMessage({
+                    cmd: "init",
+                    data: {
+                        bitmap: frameBitmap,
+                        upscaled,
+                        original,
+                        resolution: { width: w, height: h },
+                        profile: currentProfile
+                    }
+                }, [frameBitmap, upscaled, original]);
+            } else {
+                worker.postMessage({
+                    cmd: "updatePreview",
+                    data: {
+                        bitmap: frameBitmap,
+                        profile: currentProfile
+                    }
+                }, [frameBitmap]);
+            }
+        } catch (e) {
+            console.warn("Frame capture error:", e);
+        }
+    }
+}
 
-                </div>
+worker.onmessage = function (event: MessageEvent<any>) {
+    if (event.data.cmd === 'isSupported') {
+        if (!event.data.data) return showUnsupported("WebGPU API");
+    } else if (event.data.cmd === 'sourceReport') {
+        Alpine.store('sourceReport', event.data.data);
+    } else if (event.data.cmd === 'progress') {
+        Alpine.store('progress', event.data.data);
+        if (Alpine.store('state') !== 'paused') Alpine.store('state', 'processing');
+    } else if (event.data.cmd === 'eta') {
+        Alpine.store('eta', event.data.data);
+    } else if (event.data.cmd === 'finished') {
+        releaseScreenWakeLock();
+        Alpine.store('state', 'complete');
+        Alpine.store('report', event.data.report);
+        const url = event.data.data ? window.URL.createObjectURL(event.data.data) : null;
+        Alpine.store('download_url', url);
+    } else if (event.data.cmd === 'error') {
+        releaseScreenWakeLock();
+        showError(event.data.data);
+    }
+};
 
-            </div>
+async function initRecording(): Promise<void> {
+    Alpine.store('state', 'loading');
+    await requestScreenWakeLock();
 
-        </div>
+    const options = (Alpine.store('availableOptions') as ResolutionTargetOption[]);
+    const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
+    const activeOpt = options[selectedIdx] || options[0];
+    const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
+    const profile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
 
-    </main>
-</div>
+    const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+    let outputHandle: FileSystemFileHandle | undefined;
 
-<!-- Pro Membership Modal -->
-<div x-show="licenseModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" style="display: none;">
-    <div class="bg-white rounded-2xl max-w-md w-full p-6 text-center shadow-2xl border border-gray-100">
-        <div class="w-12 h-12 rounded-full bg-red-50 text-[#fd5d5d] flex items-center justify-center mx-auto mb-3 font-bold text-xl">★</div>
-        <h3 class="text-xl font-bold text-gray-900 mb-1">Activate Pro Membership</h3>
-        <p class="text-gray-500 text-xs mb-5">
-            Get unlimited 4K exports, longer duration processing, and priority model features.
-        </p>
+    if (estimated_size > MAX_FILE_BLOB_SIZE) {
+        try {
+            outputHandle = await showFilePicker();
+        } catch {
+            releaseScreenWakeLock();
+            return Alpine.store('state', 'preview');
+        }
+    }
 
-        <input type="text" x-model="licenseKey" placeholder="Enter license key or order ID" 
-               class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#fd5d5d] mb-4 text-center font-mono">
+    worker.postMessage({
+        cmd: "process",
+        inputHandle: inputFileHandle,
+        outputHandle,
+        targetWidth: activeOpt.targetWidth,
+        targetHeight: activeOpt.targetHeight,
+        targetScale: activeOpt.scale,
+        targetBitrate: activeOpt.bitrate,
+        engineMode: engineMode,
+        profile: profile
+    } as any);
+}
 
-        <button type="button" @click="if (licenseKey.trim().length > 5) { isPro = true; licenseModal = false; alert('Pro membership activated!'); } else { alert('Please enter a valid license key or purchase one at tjpromotions.pro'); }"
-                class="btn tjp-btn-primary w-full py-2.5 rounded-xl font-bold text-sm mb-3">
-            Activate License
-        </button>
+// ============================================================================
+// IMAGE UPSCALER (ESRGAN DEEP ML ENGINE)
+// ============================================================================
 
-        <div class="text-xs text-gray-400">
-            Don't have a membership yet? <br>
-            <a href="https://tjpromotions.pro" target="_blank" class="text-[#fd5d5d] font-bold hover:underline">Get Pro Access at TJ Promotions</a>
-        </div>
+async function chooseImageFile(e?: Event): Promise<void> {
+    try {
+        if (window.showOpenFilePicker) {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Image Files',
+                    accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] }
+                }],
+                multiple: false
+            });
+            const file = await fileHandle.getFile();
+            await setupImageFile(file);
+        } else {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png, image/jpeg, image/webp';
+            input.onchange = async () => {
+                if (input.files && input.files[0]) {
+                    await setupImageFile(input.files[0]);
+                }
+            };
+            input.click();
+        }
+    } catch {
+        console.log('Image selection cancelled');
+    }
+}
 
-        <button type="button" @click="licenseModal = false" class="mt-4 text-xs text-gray-400 hover:text-gray-600 block mx-auto">
-            Close
-        </button>
-    </div>
-</div>
+async function setupImageFile(file: File): Promise<void> {
+    if (file.size === 0) {
+        Alpine.store('imageError', 'The selected image file is empty.');
+        Alpine.store('imageState', 'error');
+        return;
+    }
 
-<!-- Modern Minimalist Footer -->
-<footer class="w-full py-6 border-t border-gray-200 bg-white text-xs text-gray-500 mt-10">
-    <div class="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-center px-4 gap-3">
-        <div>
-            © 2026 <strong>TJP AI Studio</strong>. All rights reserved.
-        </div>
-        <div class="flex flex-wrap justify-center gap-4 sm:gap-6 font-medium text-gray-600">
-            <a href="https://tjpromotions.pro" target="_blank" class="hover:text-[#fd5d5d] transition-colors">TJ Promotions</a>
-            <a href="https://smm.tjpromotions.pro" target="_blank" class="hover:text-[#fd5d5d] transition-colors">SMM Panel</a>
-            <a href="https://tjpromotions.pro/tools.php" target="_blank" class="hover:text-[#fd5d5d] transition-colors">Free Tools</a>
-        </div>
-    </div>
-</footer>
+    imageDownloadName = file.name.split('.')[0] + "-TJP-UPSCALED.png";
+    Alpine.store('imageDownloadName', imageDownloadName);
 
-</body>
-</html>
+    try {
+        if (originalImageSrcUrl) {
+            URL.revokeObjectURL(originalImageSrcUrl);
+        }
+
+        activeImageBitmap = await createImageBitmap(file);
+        originalImageSrcUrl = URL.createObjectURL(file);
+        Alpine.store('originalImageUrl', originalImageSrcUrl);
+
+        Alpine.store('imageWidth', activeImageBitmap.width);
+        Alpine.store('imageHeight', activeImageBitmap.height);
+        Alpine.store('imageScale', 4);
+        Alpine.store('imagePreset', 'ultra');
+
+        await triggerInstantImageEnhance();
+    } catch {
+        Alpine.store('imageError', 'Failed to decode image file. Please use PNG, JPEG, or WebP.');
+        Alpine.store('imageState', 'error');
+    }
+}
+
+async function triggerInstantImageEnhance(): Promise<void> {
+    if (!activeImageBitmap) return;
+
+    Alpine.store('imageState', 'processing');
+    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details');
+    Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
+    Alpine.store('imageProgress', 15);
+
+    try {
+        const scale = (Alpine.store('imageScale') as 2 | 4) || 4;
+        const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'ultra';
+
+        const upscaledBlob = await upscaleImage(activeImageBitmap, { 
+            scale, 
+            preset,
+            onProgress: (stage, progress, details) => {
+                Alpine.store('imageProgress', progress);
+                if (details) Alpine.store('imageProgressMessage', details);
+            }
+        });
+
+        if (currentUpscaledBlobUrl) {
+            URL.revokeObjectURL(currentUpscaledBlobUrl);
+        }
+
+        currentUpscaledBlobUrl = URL.createObjectURL(upscaledBlob);
+        Alpine.store('imageDownloadUrl', currentUpscaledBlobUrl);
+        Alpine.store('imageState', 'preview');
+    } catch (err: any) {
+        Alpine.store('imageError', err?.message || 'ESRGAN Image Upscale failed.');
+        Alpine.store('imageState', 'error');
+    }
+}
+
+// ============================================================================
+// 🎙️ AI AUDIO / VOICE ENHANCER
+// ============================================================================
+
+async function chooseAudioFile(e?: Event): Promise<void> {
+    try {
+        if (window.showOpenFilePicker) {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Audio Files',
+                    accept: { 'audio/*': ['.mp3', '.wav', '.m4a', '.aac'] }
+                }],
+                multiple: false
+            });
+            const file = await fileHandle.getFile();
+            await setupAudioFile(file);
+        } else {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'audio/mp3, audio/wav, audio/m4a, audio/aac';
+            input.onchange = async () => {
+                if (input.files && input.files[0]) {
+                    await setupAudioFile(input.files[0]);
+                }
+            };
+            input.click();
+        }
+    } catch {
+        console.log('Audio selection cancelled');
+    }
+}
+
+async function setupAudioFile(file: File): Promise<void> {
+    Alpine.store('audioState', 'processing');
+    Alpine.store('audioFileName', file.name);
+    Alpine.store('audioDownloadName', file.name.split('.')[0] + "-TJP-STUDIO-MASTER.wav");
+
+    try {
+        const result = await enhanceAudioFile(file, {}, (progress, stage) => {
+            Alpine.store('audioProgress', progress);
+            Alpine.store('audioProgressMessage', stage);
+        });
+
+        const downloadUrl = URL.createObjectURL(result.blob);
+        Alpine.store('audioDownloadUrl', downloadUrl);
+        Alpine.store('audioDuration', formatTime(result.durationSec));
+        Alpine.store('audioState', 'complete');
+    } catch (err: any) {
+        alert(err?.message || 'Audio enhancement failed');
+        Alpine.store('audioState', 'init');
+    }
+}
+
+async function requestScreenWakeLock(): Promise<void> {
+    try {
+        if ('wakeLock' in navigator) {
+            wakeLockSentinel = await (navigator as any).wakeLock.request('screen');
+        }
+    } catch {}
+}
+
+function releaseScreenWakeLock(): void {
+    try {
+        if (wakeLockSentinel && typeof wakeLockSentinel.release === 'function') {
+            wakeLockSentinel.release();
+            wakeLockSentinel = null;
+        }
+    } catch {}
+}
+
+function showError(message: string): void {
+    Alpine.store('state', 'error');
+    Alpine.store('error', String(message));
+}
+
+function formatTime(secs: number): string {
+    const s = Math.floor(secs);
+    const m = Math.floor(s / 60);
+    const remS = s % 60;
+    return `${m}:${remS < 10 ? '0' : ''}${remS}`;
+}
+
+function humanFileSize(bytes: number): string {
+    if (!bytes || isNaN(bytes) || bytes < 1024) return `${Math.round(bytes || 0)} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KiB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MiB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(1)} GiB`;
+}
+
+async function showFilePicker(): Promise<FileSystemFileHandle> {
+    return await window.showSaveFilePicker({
+        startIn: 'downloads',
+        suggestedName: download_name,
+        types: [{
+            description: 'Video File',
+            accept: { 'video/mp4': ['.mp4'] }
+        }],
+    });
+}

@@ -7,7 +7,7 @@ import type {
 } from './types/worker-messages';
 
 let gpu: any | false;
-let websr: WebSR | null = null;
+let websr: any = null;
 let currentProfile: VideoProfilePreset = 'photo';
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;

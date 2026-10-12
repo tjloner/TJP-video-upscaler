@@ -10,9 +10,9 @@ export interface ImageUpscaleOptions {
   onProgress?: (stage: string, progress: number, details?: string) => void;
 }
 
-let upscalerInstance: Upscaler | null = null;
+let upscalerInstance: any = null;
 
-function getUpscaler(): Upscaler {
+function getUpscaler(): any {
   if (!upscalerInstance) {
     upscalerInstance = new Upscaler({
       model: DefaultModel,
