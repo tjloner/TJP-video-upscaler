@@ -44,7 +44,7 @@ async function init(config: InitData): Promise<void> {
   currentProfile = config.profile || 'photo';
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
-  origCtx = original_canvas.getContext('bitmaprenderer');
+  origCtx = original_canvas.getContext('2d');
 
   const modelWeights = resolvePreviewWeights(currentProfile);
 
@@ -57,17 +57,13 @@ async function init(config: InitData): Promise<void> {
       canvas: config.upscaled as any
     });
 
-    // 1. Paint Left Canvas (Original Raw Low-Res Frame)
+    // 1. Paint Left Canvas (Original Raw Frame: Nearest-Neighbor stretched to make pixelation authentic)
     if (origCtx && config.bitmap) {
-      const origBitmap = await createImageBitmap(config.bitmap, {
-        resizeWidth: resolution.width * 2,
-        resizeHeight: resolution.height * 2,
-        resizeQuality: 'low'
-      });
-      origCtx.transferFromImageBitmap(origBitmap);
+      origCtx.imageSmoothingEnabled = false;
+      origCtx.drawImage(config.bitmap, 0, 0, resolution.width * 2, resolution.height * 2);
     }
 
-    // 2. Paint Right Canvas (Adaptive WebGPU Neural Upscale)
+    // 2. Paint Right Canvas (Enhanced WebGPU Neural Pass)
     if (websr && config.bitmap) {
       await websr.render(config.bitmap as any);
     }
@@ -147,24 +143,22 @@ self.onmessage = async function (event: MessageEvent<any>) {
               canvas: upscaled_canvas as any
             });
           } catch (err) {
-            console.warn("WebSR preview profile reconfig note:", err);
+            console.warn("WebSR preview reconfig note:", err);
           }
         }
       }
 
+      // Draw Left Canvas (Original Raw: Disables smoothing so the comparison is clear)
       if (origCtx) {
         try {
-          const rawLowRes = await createImageBitmap(bitmap, {
-            resizeWidth: w * 2,
-            resizeHeight: h * 2,
-            resizeQuality: 'low'
-          });
-          origCtx.transferFromImageBitmap(rawLowRes);
+          origCtx.imageSmoothingEnabled = false;
+          origCtx.drawImage(bitmap, 0, 0, w * 2, h * 2);
         } catch (e) {
-          console.warn("Left canvas transfer note:", e);
+          console.warn("Left canvas draw note:", e);
         }
       }
 
+      // Draw Right Canvas (AI Enhanced WebGPU)
       if (websr) {
         try {
           await websr.render(bitmap as any);

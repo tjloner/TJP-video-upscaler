@@ -1,12 +1,11 @@
 import WebSR from '@websr/websr';
-import { runTiledSuperResolution, MLProgressCallback } from './ml-engine';
 
 export type ImageModelPreset = 'photo' | 'portrait' | 'anime' | 'text' | 'ultra';
 
 export interface ImageUpscaleOptions {
   scale: 2 | 4;
   preset: ImageModelPreset;
-  onProgress?: MLProgressCallback;
+  onProgress?: (stage: string, progress: number, details?: string) => void;
 }
 
 const photoWeights = require('../weights/cnn-2x-l-rl.json');
@@ -17,6 +16,7 @@ const modelWeights: Record<string, any> = {
   portrait: photoWeights,
   anime: animeWeights,
   text: animeWeights,
+  ultra: photoWeights,
 };
 
 export async function upscaleImage(
@@ -27,30 +27,19 @@ export async function upscaleImage(
   const inHeight = imageSource.height;
   const scale = options.scale;
 
-  // =========================================================================
-  // PATH A: VIDEO2X-GRADE ULTRA ML (Real-ESRGAN Tiled WebGPU Inference)
-  // =========================================================================
-  if (options.preset === 'ultra') {
-    try {
-      return await runTiledSuperResolution(imageSource, 'realesrgan-photo', options.onProgress);
-    } catch (e) {
-      console.warn("Real-ESRGAN load notice, falling back to WebGPU neural engine:", e);
-      // Automatically fall through to Stage 1 & 2 WebSR neural upscaling!
-    }
-  }
+  options.onProgress?.('processing', 15, 'Initializing WebGPU Neural Pipeline...');
 
-  // =========================================================================
-  // PATH B: FAST WEBGPU SUPER-RESOLUTION (Instant ~300ms)
-  // =========================================================================
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
     throw new Error("WebGPU is not supported or hardware acceleration is disabled.");
   }
 
-  const selectedWeights = modelWeights[options.preset] || animeWeights;
+  const selectedWeights = modelWeights[options.preset] || photoWeights;
   const networkName = "anime4k/cnn-2x-l";
 
-  // Stage 1: Native WebSR Neural Inference (2x)
+  // Stage 1: Native WebSR Neural Inference (2x Super-Resolution)
+  options.onProgress?.('processing', 35, 'Executing Deep Neural Pass 1 (2×)...');
+
   const pass1Width = inWidth * 2;
   const pass1Height = inHeight * 2;
   const canvasPass1 = new OffscreenCanvas(pass1Width, pass1Height);
@@ -65,7 +54,7 @@ export async function upscaleImage(
 
   await websrPass1.render(imageSource as any);
 
-  // Stage 2: Target Dimension Scaling (if 4x requested)
+  // Stage 2: Target Dimension Scaling (4x if requested)
   const targetWidth = inWidth * scale;
   const targetHeight = inHeight * scale;
 
@@ -82,10 +71,12 @@ export async function upscaleImage(
   finalCtx.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
   pass1Bitmap.close();
 
-  // Stage 3: High-Frequency Structural Detail Synthesis
+  // Stage 3: High-Frequency Detail Synthesis
+  options.onProgress?.('processing', 75, 'Synthesizing Sub-Pixel Edge Details...');
   applyStructuralSharpening(finalCtx, targetWidth, targetHeight, options.preset, scale);
 
-  // Convert to PNG Blob
+  options.onProgress?.('processing', 95, 'Finalizing Lossless PNG Export...');
+
   if (typeof (finalCanvas as any).convertToBlob === 'function') {
     return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
   }
@@ -120,8 +111,8 @@ function applyStructuralSharpening(
     const d = imgData.data;
     const copy = new Uint8ClampedArray(d);
 
-    let gain = 0.45;
-    if (preset === 'text') gain = 0.75;
+    let gain = 0.50;
+    if (preset === 'ultra' || preset === 'text') gain = 0.75;
     if (preset === 'anime') gain = 0.60;
     if (preset === 'portrait') gain = 0.35;
 
@@ -142,8 +133,8 @@ function applyStructuralSharpening(
 
         const lap = 4 * lumaC - (lumaN + lumaS + lumaW + lumaE);
 
-        if (Math.abs(lap) > 6) {
-          const delta = Math.max(-45, Math.min(45, lap * gain));
+        if (Math.abs(lap) > 5) {
+          const delta = Math.max(-50, Math.min(50, lap * gain));
           d[idx] = Math.min(255, Math.max(0, copy[idx] + delta));
           d[idx + 1] = Math.min(255, Math.max(0, copy[idx + 1] + delta));
           d[idx + 2] = Math.min(255, Math.max(0, copy[idx + 2] + delta));

@@ -79,7 +79,7 @@ async function index(): Promise<void> {
     // Image Stores (With ML Progress Tracking)
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 4);
-    Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
+    Alpine.store('imagePreset', 'photo' as ImageModelPreset);
     Alpine.store('imageWidth', 0);
     Alpine.store('imageHeight', 0);
     Alpine.store('imageDownloadUrl', '');
