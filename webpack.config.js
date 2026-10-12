@@ -22,7 +22,8 @@ module.exports = {
                     {
                         loader: "ts-loader",
                         options: {
-                            allowTsInNodeModules: false
+                            allowTsInNodeModules: false,
+                            transpileOnly: true
                         }
                     }
                 ],
@@ -39,7 +40,8 @@ module.exports = {
     },
     plugins: [
         new HtmlWebpackPlugin({
-            template: 'src/index.html'
+            template: 'src/index.html',
+            minify: false // Disables html-minifier-terser so it doesn't crash on Alpine attributes
         }),
         new CleanWebpackPlugin({
             cleanStaleWebpackAssets: false
@@ -49,17 +51,6 @@ module.exports = {
                 { from: "src/*.js", to: path.basename('[name].js'), noErrorOnMissing: true },
                 { from: "src/img/*.svg", to: path.basename('[name].svg'), noErrorOnMissing: true },
                 { from: "src/img/*.png", to: path.basename('[name].png'), noErrorOnMissing: true },
-                // Copy ONNX Runtime Web Wasm binaries for instant in-browser ML execution
-                {
-                    from: path.resolve(__dirname, 'node_modules/onnxruntime-web/dist/*.wasm'),
-                    to: '[name][ext]'
-                },
-                // Copy any neural network models placed in src/models
-                {
-                    from: "src/models/**/*",
-                    to: "models/[name][ext]",
-                    noErrorOnMissing: true
-                }
             ]
         })
     ],
@@ -68,8 +59,13 @@ module.exports = {
         fallback: {
             "fs": false,
             "path": false,
-            "crypto": false
+            "crypto": false,
+            "stream": false,
+            "buffer": false
         }
+    },
+    performance: {
+        hints: false
     },
     experiments: {
         asyncWebAssembly: true
