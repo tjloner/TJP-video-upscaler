@@ -31,7 +31,12 @@ export async function upscaleImage(
   // PATH A: VIDEO2X-GRADE ULTRA ML (Real-ESRGAN Tiled WebGPU Inference)
   // =========================================================================
   if (options.preset === 'ultra') {
-    return await runTiledSuperResolution(imageSource, 'realesrgan-photo', options.onProgress);
+    try {
+      return await runTiledSuperResolution(imageSource, 'realesrgan-photo', options.onProgress);
+    } catch (e) {
+      console.warn("Real-ESRGAN load notice, falling back to WebGPU neural engine:", e);
+      // Automatically fall through to Stage 1 & 2 WebSR neural upscaling!
+    }
   }
 
   // =========================================================================
