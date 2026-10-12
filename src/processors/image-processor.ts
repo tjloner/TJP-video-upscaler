@@ -1,3 +1,5 @@
+import Upscaler from 'upscaler';
+import DefaultModel from '@upscalerjs/default-model';
 import WebSR from '@websr/websr';
 
 export type ImageModelPreset = 'photo' | 'portrait' | 'anime' | 'text' | 'ultra';
@@ -6,6 +8,17 @@ export interface ImageUpscaleOptions {
   scale: 2 | 4;
   preset: ImageModelPreset;
   onProgress?: (stage: string, progress: number, details?: string) => void;
+}
+
+let upscalerInstance: Upscaler | null = null;
+
+function getUpscaler(): Upscaler {
+  if (!upscalerInstance) {
+    upscalerInstance = new Upscaler({
+      model: DefaultModel,
+    });
+  }
+  return upscalerInstance;
 }
 
 const photoWeights = require('../weights/cnn-2x-l-rl.json');
@@ -27,18 +40,56 @@ export async function upscaleImage(
   const inHeight = imageSource.height;
   const scale = options.scale;
 
-  options.onProgress?.('processing', 15, 'Initializing WebGPU Neural Pipeline...');
+  // =========================================================================
+  // PATH A: DEEP GENERATIVE ESRGAN (For Photo, Portrait & Ultra)
+  // =========================================================================
+  if (options.preset === 'ultra' || options.preset === 'portrait' || options.preset === 'photo') {
+    try {
+      options.onProgress?.('processing', 15, 'Initializing ESRGAN Neural Core...');
 
+      const upscaler = getUpscaler();
+
+      // Convert ImageBitmap to an offscreen HTMLCanvasElement for tensor processing
+      const inputCanvas = document.createElement('canvas');
+      inputCanvas.width = inWidth;
+      inputCanvas.height = inHeight;
+      const inCtx = inputCanvas.getContext('2d')!;
+      inCtx.drawImage(imageSource, 0, 0);
+
+      options.onProgress?.('processing', 35, 'Synthesizing Sub-Pixel Facial Details (ESRGAN)...');
+
+      // Run tiled generative super-resolution
+      const upscaledSrc = await upscaler.upscale(inputCanvas, {
+        output: 'base64',
+        patchSize: 128,
+        padding: 8,
+        progress: (amount: number) => {
+          const pct = Math.round(35 + amount * 55);
+          options.onProgress?.('processing', pct, `Synthesizing Neural Details: ${Math.round(amount * 100)}%`);
+        }
+      });
+
+      options.onProgress?.('processing', 95, 'Finalizing Ultra-Resolution Render...');
+
+      // Convert the base64 output into a high-res PNG Blob
+      const response = await fetch(upscaledSrc);
+      return await response.blob();
+    } catch (err) {
+      console.warn("ESRGAN engine notice, falling back to WebGPU shader:", err);
+      // Fall through cleanly to WebGPU pipeline if device memory is constrained
+    }
+  }
+
+  // =========================================================================
+  // PATH B: WEBGPU LINE-THINNING PIPELINE (For Anime & Text / Logos)
+  // =========================================================================
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
     throw new Error("WebGPU is not supported or hardware acceleration is disabled.");
   }
 
-  const selectedWeights = modelWeights[options.preset] || photoWeights;
+  const selectedWeights = modelWeights[options.preset] || animeWeights;
   const networkName = "anime4k/cnn-2x-l";
-
-  // Stage 1: Native WebSR Neural Inference (2x Super-Resolution)
-  options.onProgress?.('processing', 35, 'Executing Deep Neural Pass 1 (2×)...');
 
   const pass1Width = inWidth * 2;
   const pass1Height = inHeight * 2;
@@ -54,15 +105,12 @@ export async function upscaleImage(
 
   await websrPass1.render(imageSource as any);
 
-  // Stage 2: Target Dimension Scaling (4x if requested)
   const targetWidth = inWidth * scale;
   const targetHeight = inHeight * scale;
 
   const finalCanvas = new OffscreenCanvas(targetWidth, targetHeight);
   const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
-  if (!finalCtx) {
-    throw new Error("Unable to create target 2D context");
-  }
+  if (!finalCtx) throw new Error("Canvas context creation failed");
 
   finalCtx.imageSmoothingEnabled = true;
   finalCtx.imageSmoothingQuality = 'high';
@@ -71,11 +119,7 @@ export async function upscaleImage(
   finalCtx.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
   pass1Bitmap.close();
 
-  // Stage 3: High-Frequency Detail Synthesis
-  options.onProgress?.('processing', 75, 'Synthesizing Sub-Pixel Edge Details...');
   applyStructuralSharpening(finalCtx, targetWidth, targetHeight, options.preset, scale);
-
-  options.onProgress?.('processing', 95, 'Finalizing Lossless PNG Export...');
 
   if (typeof (finalCanvas as any).convertToBlob === 'function') {
     return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
@@ -86,9 +130,7 @@ export async function upscaleImage(
   fallbackCanvas.width = targetWidth;
   fallbackCanvas.height = targetHeight;
   const ctx = fallbackCanvas.getContext('2d');
-  if (ctx) {
-    ctx.drawImage(exportBitmap, 0, 0);
-  }
+  ctx?.drawImage(exportBitmap, 0, 0);
   exportBitmap.close();
 
   return await new Promise<Blob>((resolve, reject) => {
@@ -111,10 +153,7 @@ function applyStructuralSharpening(
     const d = imgData.data;
     const copy = new Uint8ClampedArray(d);
 
-    let gain = 0.50;
-    if (preset === 'ultra' || preset === 'text') gain = 0.75;
-    if (preset === 'anime') gain = 0.60;
-    if (preset === 'portrait') gain = 0.35;
+    const gain = preset === 'text' ? 0.75 : (preset === 'anime' ? 0.60 : 0.35);
 
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
