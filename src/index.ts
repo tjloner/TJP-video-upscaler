@@ -76,16 +76,19 @@ async function index(): Promise<void> {
     Alpine.store('filename', '');
     Alpine.store('error', '');
 
-    // Image Stores
+    // Image Stores (With ML Progress Tracking)
     Alpine.store('imageState', 'init');
-    Alpine.store('imageScale', 2);
-    Alpine.store('imagePreset', 'text');
+    Alpine.store('imageScale', 4);
+    Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
     Alpine.store('imageWidth', 0);
     Alpine.store('imageHeight', 0);
     Alpine.store('imageDownloadUrl', '');
     Alpine.store('originalImageUrl', '');
     Alpine.store('imageDownloadName', '');
     Alpine.store('imageError', '');
+    Alpine.store('imageStatusTitle', 'Upscaling Image with WebGPU');
+    Alpine.store('imageProgressMessage', 'Applying neural reconstruction...');
+    Alpine.store('imageProgress', 0);
 
     Alpine.start();
     document.body.style.display = "block";
@@ -435,7 +438,7 @@ async function initRecording(): Promise<void> {
 }
 
 // ============================================================================
-// IMAGE UPSCALER (INSTANT NATIVE BEFORE/AFTER SPLIT SLIDER)
+// IMAGE UPSCALER (INSTANT NATIVE BEFORE/AFTER SPLIT SLIDER + REAL-ESRGAN ML)
 // ============================================================================
 
 async function chooseImageFile(e?: Event): Promise<void> {
@@ -487,8 +490,8 @@ async function setupImageFile(file: File): Promise<void> {
 
         Alpine.store('imageWidth', activeImageBitmap.width);
         Alpine.store('imageHeight', activeImageBitmap.height);
-        Alpine.store('imageScale', 2);
-        Alpine.store('imagePreset', 'text');
+        Alpine.store('imageScale', 4);
+        Alpine.store('imagePreset', 'ultra'); // Default to Ultra AI Real-ESRGAN!
 
         await triggerInstantImageEnhance();
     } catch {
@@ -501,12 +504,28 @@ async function triggerInstantImageEnhance(): Promise<void> {
     if (!activeImageBitmap) return;
 
     Alpine.store('imageState', 'processing');
+    Alpine.store('imageStatusTitle', 'Initializing Real-ESRGAN Neural Core');
+    Alpine.store('imageProgressMessage', 'Preparing WebGPU memory buffers...');
+    Alpine.store('imageProgress', 5);
 
     try {
-        const scale = (Alpine.store('imageScale') as 2 | 4) || 2;
-        const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'text';
+        const scale = (Alpine.store('imageScale') as 2 | 4) || 4;
+        const preset = (Alpine.store('imagePreset') as ImageModelPreset) || 'ultra';
 
-        const upscaledBlob = await upscaleImage(activeImageBitmap, { scale, preset });
+        const upscaledBlob = await upscaleImage(activeImageBitmap, { 
+            scale, 
+            preset,
+            onProgress: (stage, progress, details) => {
+                Alpine.store('imageProgress', progress);
+                if (stage === 'downloading') {
+                    Alpine.store('imageStatusTitle', 'Downloading Neural Model (Cached in Browser)');
+                    Alpine.store('imageProgressMessage', details || `Fetching weights: ${progress}%`);
+                } else {
+                    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details (WebGPU)');
+                    Alpine.store('imageProgressMessage', details || `Tiled ML Inference: ${progress}%`);
+                }
+            }
+        });
 
         if (currentUpscaledBlobUrl) {
             URL.revokeObjectURL(currentUpscaledBlobUrl);

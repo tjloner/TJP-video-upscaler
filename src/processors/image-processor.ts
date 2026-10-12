@@ -1,16 +1,18 @@
 import WebSR from '@websr/websr';
+import { runTiledSuperResolution, MLProgressCallback } from './ml-engine';
 
-export type ImageModelPreset = 'photo' | 'portrait' | 'anime' | 'text';
+export type ImageModelPreset = 'photo' | 'portrait' | 'anime' | 'text' | 'ultra';
 
 export interface ImageUpscaleOptions {
   scale: 2 | 4;
   preset: ImageModelPreset;
+  onProgress?: MLProgressCallback;
 }
 
 const photoWeights = require('../weights/cnn-2x-l-rl.json');
 const animeWeights = require('../weights/cnn-2x-l-an.json');
 
-const modelWeights: Record<ImageModelPreset, any> = {
+const modelWeights: Record<string, any> = {
   photo: photoWeights,
   portrait: photoWeights,
   anime: animeWeights,
@@ -25,6 +27,16 @@ export async function upscaleImage(
   const inHeight = imageSource.height;
   const scale = options.scale;
 
+  // =========================================================================
+  // PATH A: VIDEO2X-GRADE ULTRA ML (Real-ESRGAN Tiled WebGPU Inference)
+  // =========================================================================
+  if (options.preset === 'ultra') {
+    return await runTiledSuperResolution(imageSource, 'realesrgan-photo', options.onProgress);
+  }
+
+  // =========================================================================
+  // PATH B: FAST WEBGPU SUPER-RESOLUTION (Instant ~300ms)
+  // =========================================================================
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
     throw new Error("WebGPU is not supported or hardware acceleration is disabled.");
@@ -66,7 +78,6 @@ export async function upscaleImage(
   pass1Bitmap.close();
 
   // Stage 3: High-Frequency Structural Detail Synthesis
-  // Sharpens linework, typography, and micro-textures
   applyStructuralSharpening(finalCtx, targetWidth, targetHeight, options.preset, scale);
 
   // Convert to PNG Blob
@@ -109,7 +120,6 @@ function applyStructuralSharpening(
     if (preset === 'anime') gain = 0.60;
     if (preset === 'portrait') gain = 0.35;
 
-    // Convolve with 3x3 Laplacian edge-enhancement kernel
     for (let y = 1; y < h - 1; y++) {
       for (let x = 1; x < w - 1; x++) {
         const idx = (y * w + x) * 4;

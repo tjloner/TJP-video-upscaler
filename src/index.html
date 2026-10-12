@@ -223,7 +223,6 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 </button>
                             </div>
 
-                            <!-- Dedicated wrapper so Zoom doesn't wipe dimensions -->
                             <div class="w-full h-full flex justify-center items-center overflow-hidden pointer-events-auto">
                                 <div x-ref="activeVideoFrame" 
                                      id="player-frame" 
@@ -471,18 +470,24 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Select an image to upscale</h2>
                 <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Supports PNG, JPG, JPEG, and WebP. Reconstruct photos, portraits, anime art, and text logos in under 1 second on your GPU.
+                    Supports PNG, JPG, JPEG, and WebP. Reconstruct photos, portraits, anime art, and text logos with Real-ESRGAN machine learning on your GPU.
                 </p>
                 <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseImageFile(this)">
                     Select Image File
                 </button>
             </div>
 
-            <!-- Step 2: Processing Spinner -->
-            <div class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
+            <!-- Step 2: Processing Spinner with Live Progress Details -->
+            <div class="tjp-card rounded-2xl p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800">Upscaling Image with WebGPU</h3>
-                <p class="text-gray-400 text-sm mt-1">Applying sub-pixel neural reconstruction...</p>
+                <h3 class="text-lg font-bold text-gray-800" x-text="$store.imageStatusTitle || 'Upscaling Image with WebGPU'"></h3>
+                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.imageProgressMessage || 'Applying neural reconstruction...'"></p>
+
+                <!-- Live ML Progress Bar -->
+                <div class="w-full max-w-xs bg-gray-100 h-2.5 rounded-full overflow-hidden mt-4 border border-gray-200">
+                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" :style="'width: ' + ($store.imageProgress || 10) + '%'"></div>
+                </div>
+                <span class="text-[10px] text-gray-400 mt-1.5 font-mono" x-text="($store.imageProgress || 0) + '%'"></span>
             </div>
 
             <!-- Step 3: Error Panel -->
@@ -516,7 +521,8 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 <!-- ENHANCED IMAGE (RIGHT WITH DYNAMIC CLIP PATH) -->
                                 <div class="absolute inset-0 w-full h-full pointer-events-none overflow-hidden flex justify-center items-center" 
                                      :style="'clip-path: polygon(' + imgSliderPos + '% 0, 100% 0, 100% 100%, ' + imgSliderPos + '% 100%)'">
-                                    <img :src="$store.imageDownloadUrl" class="w-full h-full object-contain pointer-events-none select-none">
+                                    <img :src="$store.imageDownloadUrl" 
+                                         class="w-full h-full object-contain pointer-events-none select-none">
                                 </div>
 
                                 <!-- Slider Divider Bar -->
@@ -555,9 +561,21 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             </div>
                         </div>
 
-                        <!-- 4 Specialized AI Presets -->
+                        <!-- 5 Specialized AI Presets (Including Real-ESRGAN) -->
                         <div>
                             <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
+                            
+                            <!-- Ultra AI Real-ESRGAN Featured Banner Button -->
+                            <div class="mb-2">
+                                <button type="button" 
+                                        @click="updateImagePreset('ultra')"
+                                        :class="$store.imagePreset === 'ultra' ? 'bg-[#fd5d5d] text-white shadow-md border-[#fd5d5d]' : 'bg-red-50 text-[#fd5d5d] border-red-200 hover:bg-red-100'"
+                                        class="w-full py-2.5 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition-all">
+                                    <span>✨ Ultra AI (Real-ESRGAN)</span>
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full" :class="$store.imagePreset === 'ultra' ? 'bg-white/20' : 'bg-[#fd5d5d]/10'">Deep ML</span>
+                                </button>
+                            </div>
+
                             <div class="grid grid-cols-2 gap-2 network-option">
                                 <div>
                                     <input type="radio" name="img-preset" id="p-photo" value="photo" 
@@ -581,12 +599,9 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                     <input type="radio" name="img-preset" id="p-text" value="text" 
                                            :checked="$store.imagePreset === 'text'"
                                            @change="updateImagePreset('text')">
-                                    <label for="p-text" class="block text-center text-xs py-2 cursor-pointer border-[#fd5d5d] text-[#fd5d5d]">📝 Text & Logo</label>
+                                    <label for="p-text" class="block text-center text-xs py-2 cursor-pointer">📝 Text & Logo</label>
                                 </div>
                             </div>
-                            <p class="text-[11px] text-gray-400 mt-1.5 leading-snug">
-                                <strong>Text & Logo:</strong> Optimized for ID cards, receipts, and documents with typography.
-                            </p>
                         </div>
 
                         <!-- Scale Selector (2x vs 4x) -->
