@@ -23,7 +23,8 @@ export class PatchPreviewController {
   private compareContainer: HTMLElement;
   private onCropChange: (crop: CropRect) => void;
 
-  public crop: CropRect = { x: 0, y: 0, width: 360, height: 360 };
+  // 192x192 patch (matches free.upscaler.video for true 2x pixel inspection)
+  public crop: CropRect = { x: 0, y: 0, width: 192, height: 192 };
   private isDraggingMinimap: boolean = false;
   private minimapScale: number = 1;
 
@@ -44,13 +45,10 @@ export class PatchPreviewController {
     const vW = this.video.videoWidth || 640;
     const vH = this.video.videoHeight || 360;
 
-    const isWidescreen = vW >= vH;
-    let patchW = isWidescreen ? 480 : 360;
-    let patchH = isWidescreen ? Math.round(patchW * (vH / vW)) : 420;
-
-    // Enforce multiples of 8 to prevent WebGPU workgroup crashes
-    patchW = Math.floor(Math.min(patchW, vW) / 8) * 8;
-    patchH = Math.floor(Math.min(patchH, vH) / 8) * 8;
+    // Tight 192px crop: enables pixel-level comparison like free.upscaler.video
+    const patchSize = Math.min(192, Math.min(vW, vH));
+    const patchW = patchSize;
+    const patchH = patchSize;
 
     this.crop = {
       x: Math.floor(Math.max(0, (vW - patchW) / 2) / 2) * 2,
@@ -59,16 +57,15 @@ export class PatchPreviewController {
       height: patchH
     };
 
-    // Explicit dimensions on playerFrame so it never collapses to height 0
-    this.playerFrame.style.width = `${patchW}px`;
-    this.playerFrame.style.height = `${patchH}px`;
-    this.playerFrame.style.minWidth = `${patchW}px`;
-    this.playerFrame.style.minHeight = `${patchH}px`;
-    this.playerFrame.style.maxWidth = '100%';
-    this.playerFrame.style.maxHeight = '100%';
+    // Magnify to 384x384 on screen so source pixels are visible on the left and sharp on the right
+    const displaySize = patchSize * 2;
+    this.playerFrame.style.width = `${displaySize}px`;
+    this.playerFrame.style.height = `${displaySize}px`;
+    this.playerFrame.style.minWidth = `${displaySize}px`;
+    this.playerFrame.style.minHeight = `${displaySize}px`;
 
     // Minimap calculation
-    const miniW = Math.round(Math.min(0.35 * patchW, 140));
+    const miniW = Math.round(Math.min(0.35 * displaySize, 120));
     const miniH = Math.round(miniW * (vH / vW));
     this.minimapCanvas.width = miniW;
     this.minimapCanvas.height = miniH;
