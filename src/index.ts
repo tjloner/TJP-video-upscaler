@@ -60,7 +60,7 @@ declare global {
 document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
-    // Video Stores (Adopting Sharpen vs Detail Family)
+    // Video Stores
     Alpine.store('appMode', 'video');
     Alpine.store('state', 'init');
     Alpine.store('target', 'blob');
@@ -82,7 +82,7 @@ async function index(): Promise<void> {
     Alpine.store('filename', '');
     Alpine.store('error', '');
 
-    // Image Stores (ESRGAN Neural Core)
+    // Image Stores
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 4);
     Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
@@ -96,7 +96,7 @@ async function index(): Promise<void> {
     Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
     Alpine.store('imageProgress', 0);
 
-    // Audio Stores (Studio Voice Master)
+    // Audio Stores
     Alpine.store('audioState', 'init');
     Alpine.store('audioFileName', '');
     Alpine.store('audioDuration', '');
@@ -138,9 +138,9 @@ async function index(): Promise<void> {
     window.selectVideoFamily = async (family: VideoModelFamily) => {
         Alpine.store('videoFamily', family);
         if (family === 'sharpen') {
-            Alpine.store('proTipMessage', 'Sharpen mode active: Restores crisp line boundaries (ideal for typography, anime, and logos).');
+            Alpine.store('proTipMessage', 'Sharpen mode: Restores crisp line boundaries (ideal for typography, anime, and logos).');
         } else {
-            Alpine.store('proTipMessage', 'Detail mode active: Reconstructs realistic textures, skin pores, hair, and fabric weave.');
+            Alpine.store('proTipMessage', 'Detail mode: Reconstructs realistic textures, skin pores, hair, and fabric weave.');
         }
         await updateLiveVideoPreview();
     };
@@ -333,70 +333,72 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             }
         };
     };
+}
 
-    async function updateLiveVideoPreview() {
-        if (Alpine.store('state') !== 'processing') {
-            window.initRecording = initRecording;
+async function updateLiveVideoPreview(): Promise<void> {
+    if (!video) return;
 
-            const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
-            Alpine.store('availableOptions', options);
+    if (Alpine.store('state') !== 'processing') {
+        window.initRecording = initRecording;
 
-            if (!Alpine.store('selectedOptionIndex')) {
-                Alpine.store('selectedOptionIndex', options.length - 1);
+        const options = calculateSmartResolutionOptions(video.videoWidth || 640, video.videoHeight || 360);
+        Alpine.store('availableOptions', options);
+
+        if (!Alpine.store('selectedOptionIndex')) {
+            Alpine.store('selectedOptionIndex', options.length - 1);
+        }
+
+        window.selectTargetResolution = function (index: number): void {
+            Alpine.store('selectedOptionIndex', index);
+            const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
+            if (opt) {
+                const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+                Alpine.store('size', humanFileSize(estimated_size));
             }
+        };
 
-            window.selectTargetResolution = function (index: number): void {
-                Alpine.store('selectedOptionIndex', index);
-                const opt = (Alpine.store('availableOptions') as ResolutionTargetOption[])[index];
-                if (opt) {
-                    const estimated_size = (opt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
-                    Alpine.store('size', humanFileSize(estimated_size));
+        const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
+        const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+        Alpine.store('size', humanFileSize(estimated_size));
+
+        Alpine.store('target', 'blob');
+        Alpine.store('state', 'preview');
+    }
+
+    try {
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 360;
+        const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
+        const profileParam: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
+
+        const frameBitmap = await createImageBitmap(video);
+
+        if (!isOffscreenTransferred && upscaled_canvas && original_canvas) {
+            const upscaled = upscaled_canvas.transferControlToOffscreen();
+            const original = original_canvas.transferControlToOffscreen();
+            isOffscreenTransferred = true;
+
+            worker.postMessage({
+                cmd: "init",
+                data: {
+                    bitmap: frameBitmap,
+                    upscaled,
+                    original,
+                    resolution: { width: w, height: h },
+                    profile: profileParam
                 }
-            };
-
-            const activeOpt = options[Alpine.store('selectedOptionIndex') as number] || options[0];
-            const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
-            Alpine.store('size', humanFileSize(estimated_size));
-
-            Alpine.store('target', 'blob');
-            Alpine.store('state', 'preview');
+            }, [frameBitmap, upscaled, original]);
+        } else {
+            worker.postMessage({
+                cmd: "updatePreview",
+                data: {
+                    bitmap: frameBitmap,
+                    profile: profileParam
+                }
+            }, [frameBitmap]);
         }
-
-        try {
-            const w = video.videoWidth || 640;
-            const h = video.videoHeight || 360;
-            const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
-            const profileParam: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
-
-            const frameBitmap = await createImageBitmap(video);
-
-            if (!isOffscreenTransferred) {
-                const upscaled = upscaled_canvas.transferControlToOffscreen();
-                const original = original_canvas.transferControlToOffscreen();
-                isOffscreenTransferred = true;
-
-                worker.postMessage({
-                    cmd: "init",
-                    data: {
-                        bitmap: frameBitmap,
-                        upscaled,
-                        original,
-                        resolution: { width: w, height: h },
-                        profile: profileParam
-                    }
-                }, [frameBitmap, upscaled, original]);
-            } else {
-                worker.postMessage({
-                    cmd: "updatePreview",
-                    data: {
-                        bitmap: frameBitmap,
-                        profile: profileParam
-                    }
-                }, [frameBitmap]);
-            }
-        } catch (e) {
-            console.warn("Frame capture error:", e);
-        }
+    } catch (e) {
+        console.warn("Frame capture error:", e);
     }
 }
 
