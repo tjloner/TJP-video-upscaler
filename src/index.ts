@@ -279,13 +279,14 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             original_canvas.height = patchDisplaySize * 2;
         }
 
-        if (minimapCanvas && viewportBox) {
+        const compareContainer = playerFrame?.parentElement as HTMLElement;
+        if (minimapCanvas && viewportBox && playerFrame && compareContainer) {
             patchController = new PatchPreviewController({
                 video,
                 minimapCanvas,
                 viewportBox,
-                containerWidth: patchDisplaySize,
-                containerHeight: patchDisplaySize,
+                playerFrame,
+                compareContainer,
                 onCropChange: async () => {
                     await updateLiveVideoPreview();
                 }

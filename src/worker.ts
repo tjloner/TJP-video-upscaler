@@ -11,7 +11,7 @@ let websr: any = null;
 let currentProfile: VideoProfilePreset = 'photo';
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
-let resolution: Resolution = { width: 640, height: 360 };
+let resolution: Resolution = { width: 360, height: 360 };
 let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
@@ -40,10 +40,20 @@ async function init(config: InitData): Promise<void> {
     gpu = await WebSR.initWebGPU();
   }
 
-  resolution = config.resolution || { width: 640, height: 360 };
+  const pw = config.bitmap ? config.bitmap.width : (config.resolution?.width || 360);
+  const ph = config.bitmap ? config.bitmap.height : (config.resolution?.height || 360);
+  resolution = { width: pw, height: ph };
+
   currentProfile = config.profile || 'photo';
   upscaled_canvas = config.upscaled;
   original_canvas = config.original;
+
+  // Align canvas pixel coordinate buffers strictly to 2x patch dimensions
+  upscaled_canvas.width = pw * 2;
+  upscaled_canvas.height = ph * 2;
+  original_canvas.width = pw * 2;
+  original_canvas.height = ph * 2;
+
   origCtx = original_canvas.getContext('2d');
 
   const modelWeights = resolvePreviewWeights(currentProfile);
@@ -52,18 +62,18 @@ async function init(config: InitData): Promise<void> {
     websr = new WebSR({
       network_name: "anime4k/cnn-2x-l",
       weights: modelWeights,
-      resolution: resolution,
+      resolution: { width: pw, height: ph },
       gpu: gpu as any,
       canvas: config.upscaled as any
     });
 
-    // 1. Paint Left Canvas (Original Raw Frame: Nearest-Neighbor stretched to make pixelation authentic)
+    // 1. Paint Left Canvas: Raw untouched patch with nearest-neighbor scaling
     if (origCtx && config.bitmap) {
       origCtx.imageSmoothingEnabled = false;
-      origCtx.drawImage(config.bitmap, 0, 0, resolution.width * 2, resolution.height * 2);
+      origCtx.drawImage(config.bitmap, 0, 0, pw * 2, ph * 2);
     }
 
-    // 2. Paint Right Canvas (Enhanced WebGPU Neural Pass)
+    // 2. Paint Right Canvas: WebGPU Neural Pass on the exact same patch
     if (websr && config.bitmap) {
       await websr.render(config.bitmap as any);
     }
@@ -124,21 +134,29 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const { bitmap, profile } = event.data.data;
       if (!bitmap) break;
 
-      const w = bitmap.width;
-      const h = bitmap.height;
+      const pw = bitmap.width;
+      const ph = bitmap.height;
       const nextProfile = profile || currentProfile;
 
-      const needsReinit = !websr || resolution.width !== w || resolution.height !== h || currentProfile !== nextProfile;
+      const needsReinit = !websr || resolution.width !== pw || resolution.height !== ph || currentProfile !== nextProfile;
 
       if (needsReinit) {
-        resolution = { width: w, height: h };
+        resolution = { width: pw, height: ph };
         currentProfile = nextProfile;
+
+        if (upscaled_canvas && original_canvas) {
+          upscaled_canvas.width = pw * 2;
+          upscaled_canvas.height = ph * 2;
+          original_canvas.width = pw * 2;
+          original_canvas.height = ph * 2;
+        }
+
         if (gpu && upscaled_canvas) {
           try {
             websr = new WebSR({
               network_name: "anime4k/cnn-2x-l",
               weights: resolvePreviewWeights(currentProfile),
-              resolution: { width: w, height: h },
+              resolution: { width: pw, height: ph },
               gpu: gpu as any,
               canvas: upscaled_canvas as any
             });
@@ -148,17 +166,17 @@ self.onmessage = async function (event: MessageEvent<any>) {
         }
       }
 
-      // Draw Left Canvas (Original Raw: Disables smoothing so the comparison is clear)
+      // Draw Left: Exactly the same patch coordinates
       if (origCtx) {
         try {
           origCtx.imageSmoothingEnabled = false;
-          origCtx.drawImage(bitmap, 0, 0, w * 2, h * 2);
+          origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
         } catch (e) {
           console.warn("Left canvas draw note:", e);
         }
       }
 
-      // Draw Right Canvas (AI Enhanced WebGPU)
+      // Draw Right: Exactly the same patch coordinates
       if (websr) {
         try {
           await websr.render(bitmap as any);

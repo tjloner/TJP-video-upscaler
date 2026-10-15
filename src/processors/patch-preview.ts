@@ -9,8 +9,8 @@ export interface PatchPreviewConfig {
   video: HTMLVideoElement;
   minimapCanvas: HTMLCanvasElement;
   viewportBox: HTMLElement;
-  containerWidth: number;
-  containerHeight: number;
+  playerFrame: HTMLElement;
+  compareContainer: HTMLElement;
   onCropChange: (crop: CropRect) => void;
 }
 
@@ -19,9 +19,11 @@ export class PatchPreviewController {
   private minimapCanvas: HTMLCanvasElement;
   private minimapCtx: CanvasRenderingContext2D;
   private viewportBox: HTMLElement;
+  private playerFrame: HTMLElement;
+  private compareContainer: HTMLElement;
   private onCropChange: (crop: CropRect) => void;
 
-  public crop: CropRect = { x: 0, y: 0, width: 320, height: 320 };
+  public crop: CropRect = { x: 0, y: 0, width: 360, height: 360 };
   private isDraggingMinimap: boolean = false;
   private minimapScale: number = 1;
 
@@ -30,44 +32,52 @@ export class PatchPreviewController {
     this.minimapCanvas = config.minimapCanvas;
     this.minimapCtx = this.minimapCanvas.getContext('2d')!;
     this.viewportBox = config.viewportBox;
+    this.playerFrame = config.playerFrame;
+    this.compareContainer = config.compareContainer;
     this.onCropChange = config.onCropChange;
 
-    this.initMinimap(config.containerWidth, config.containerHeight);
+    this.initGeometry();
     this.bindEvents();
   }
 
-  /**
-   * Initializes the minimap thumbnail and sets initial crop centered on the action/face
-   */
-  public initMinimap(containerW: number, containerH: number): void {
+  public initGeometry(): void {
     const vW = this.video.videoWidth || 640;
     const vH = this.video.videoHeight || 360;
 
-    // Minimap thumbnail dimensions (max 100px width)
-    const maxMiniW = 100;
-    const miniW = maxMiniW;
-    const miniH = Math.round(maxMiniW * (vH / vW));
+    // Determine optimal patch size based on source video aspect ratio
+    const isWidescreen = vW >= vH;
+    let patchW = isWidescreen ? 480 : 360;
+    let patchH = isWidescreen ? Math.round(patchW * (vH / vW)) : 420;
 
-    this.minimapCanvas.width = miniW;
-    this.minimapCanvas.height = miniH;
-    this.minimapScale = miniW / vW;
+    patchW = Math.min(patchW, vW);
+    patchH = Math.min(patchH, vH);
 
-    // Crop size (e.g. 320x320 patch for 1:1 native inspection)
-    const patchSize = Math.min(360, Math.min(vW, vH));
+    // Initial center crop
     this.crop = {
-      x: Math.round((vW - patchSize) / 2),
-      y: Math.round((vH - patchSize) / 2),
-      width: patchSize,
-      height: patchSize
+      x: Math.max(0, Math.round((vW - patchW) / 2)),
+      y: Math.max(0, Math.round((vH - patchH) / 2)),
+      width: patchW,
+      height: patchH
     };
 
+    // Size frame using exact aspect ratio
+    this.playerFrame.style.width = `${patchW}px`;
+    this.playerFrame.style.maxWidth = '100%';
+    this.compareContainer.style.aspectRatio = `${patchW} / ${patchH}`;
+
+    // Size minimap: Math.min(0.3 * patchW, 160)
+    const miniW = Math.round(Math.min(0.35 * patchW, 150));
+    const miniH = Math.round(miniW * (vH / vW));
+    this.minimapCanvas.width = miniW;
+    this.minimapCanvas.height = miniH;
+    this.minimapCanvas.style.width = `${miniW}px`;
+    this.minimapCanvas.style.height = `${miniH}px`;
+    this.minimapScale = miniW / vW;
+
     this.renderMinimap();
-    this.updateViewportBoxStyle();
+    this.updateViewportBox();
   }
 
-  /**
-   * Renders the whole frame thumbnail on the minimap
-   */
   public renderMinimap(): void {
     if (!this.minimapCtx) return;
     this.minimapCtx.drawImage(
@@ -79,10 +89,7 @@ export class PatchPreviewController {
     );
   }
 
-  /**
-   * Updates the purple viewport box CSS coordinates over the minimap
-   */
-  private updateViewportBoxStyle(): void {
+  private updateViewportBox(): void {
     const boxX = Math.round(this.crop.x * this.minimapScale);
     const boxY = Math.round(this.crop.y * this.minimapScale);
     const boxW = Math.round(this.crop.width * this.minimapScale);
@@ -94,9 +101,6 @@ export class PatchPreviewController {
     this.viewportBox.style.height = `${boxH}px`;
   }
 
-  /**
-   * Updates crop position from client coordinates on the minimap
-   */
   public setCropFromMinimap(clientX: number, clientY: number): void {
     const rect = this.minimapCanvas.getBoundingClientRect();
     const clickX = clientX - rect.left;
@@ -105,21 +109,19 @@ export class PatchPreviewController {
     const vW = this.video.videoWidth || 640;
     const vH = this.video.videoHeight || 360;
 
-    // Convert click position to video coordinates (centered on click)
     const targetCenterX = clickX / this.minimapScale;
     const targetCenterY = clickY / this.minimapScale;
 
     let newX = Math.round(targetCenterX - this.crop.width / 2);
     let newY = Math.round(targetCenterY - this.crop.height / 2);
 
-    // Clamp inside video boundaries
     newX = Math.max(0, Math.min(vW - this.crop.width, newX));
     newY = Math.max(0, Math.min(vH - this.crop.height, newY));
 
     this.crop.x = newX;
     this.crop.y = newY;
 
-    this.updateViewportBoxStyle();
+    this.updateViewportBox();
     this.onCropChange(this.crop);
   }
 
@@ -155,9 +157,6 @@ export class PatchPreviewController {
     window.addEventListener('touchend', onPointerUp);
   }
 
-  /**
-   * Extracts the cropped ImageBitmap from the video frame for neural inference
-   */
   public async getCroppedBitmap(): Promise<ImageBitmap> {
     return await createImageBitmap(
       this.video,
