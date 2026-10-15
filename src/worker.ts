@@ -8,6 +8,7 @@ import type {
 
 let gpu: any | false = false;
 let websr: any = null;
+let currentNetwork = 'anime4k/cnn-2x-l';
 let currentFamily: 'sharpen' | 'detail' = 'detail';
 let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
 let upscaled_canvas: OffscreenCanvas;
@@ -17,82 +18,20 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-const weightBuffers: Record<string, any> = {};
+// Bundled verified neural weights
+const weightsRealLife = require('./weights/cnn-2x-l-rl.json');
+const weightsAnime = require('./weights/cnn-2x-l-an.json');
+const weightsFast = require('./weights/cnn-2x-s-an.json');
 
-function getBaseUrl(): string {
-  if (typeof self !== 'undefined' && self.location && self.location.href) {
-    const href = self.location.href;
-    const idx = href.indexOf('/dist/') !== -1 ? href.indexOf('/dist/') : href.lastIndexOf('/');
-    return href.substring(0, idx + 1);
+function resolveModelConfig(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality'): { networkName: string; weights: any } {
+  if (tier === 'fast') {
+    return { networkName: 'anime4k/cnn-2x-s', weights: weightsFast };
   }
-  return '/';
-}
-
-function parseWeightsBinary(buffer: ArrayBuffer): any {
-  const view = new DataView(buffer);
-  const m0 = view.getUint8(0);
-  const m1 = view.getUint8(1);
-  const m2 = view.getUint8(2);
-  const m3 = view.getUint8(3);
-
-  // UNT\0 (U-Net)
-  if (m0 === 85 && m1 === 78 && m2 === 84 && m3 === 0) {
-    if (typeof (WebSR as any).parseUNetWeights === 'function') {
-      return (WebSR as any).parseUNetWeights(buffer);
-    }
-    return { format: 'unet', buffer };
-  }
-
-  // A4K\0 (Anime4K CNN)
-  if (m0 === 65 && m1 === 52 && m2 === 75 && m3 === 0) {
-    if (typeof (WebSR as any).parseBinaryWeights === 'function') {
-      return (WebSR as any).parseBinaryWeights(buffer);
-    }
-  }
-
-  return buffer;
-}
-
-async function resolveModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality'): Promise<{ networkName: string; weights: any }> {
-  let fileName = 'unet-u24.bin';
-  let networkName = 'katana/unet-u24';
-
   if (family === 'sharpen') {
-    if (tier === 'fast') {
-      fileName = 'cnn-8.bin';
-      networkName = 'anime4k/cnn-2x-l';
-    } else if (tier === 'quality') {
-      fileName = 'cnn-28.bin';
-      networkName = 'anime4k/cnn-2x-28';
-    } else {
-      fileName = 'cnn-16.bin';
-      networkName = 'anime4k/cnn-2x-16';
-    }
+    return { networkName: 'anime4k/cnn-2x-l', weights: weightsAnime };
   }
-
-  if (weightBuffers[fileName]) {
-    return { networkName, weights: weightBuffers[fileName] };
-  }
-
-  const baseUrl = getBaseUrl();
-  const url = `${baseUrl}weights/${fileName}`;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = await res.arrayBuffer();
-    const parsed = parseWeightsBinary(buf);
-    weightBuffers[fileName] = parsed;
-    console.log(`[TJP Worker]: Loaded binary weights from ${url}`);
-    return { networkName, weights: parsed };
-  } catch (err) {
-    console.warn(`[TJP Worker]: Could not fetch ${url}, using bundled fallback:`, err);
-    // Bundled fallback guarantees the engine NEVER crashes into a blank screen
-    const fallback = family === 'detail'
-      ? require('./weights/cnn-2x-l-rl.json')
-      : require('./weights/cnn-2x-l-an.json');
-    return { networkName: 'anime4k/cnn-2x-l', weights: fallback };
-  }
+  // Detail mode uses real-life photographic weights
+  return { networkName: 'anime4k/cnn-2x-l', weights: weightsRealLife };
 }
 
 async function isSupported(): Promise<void> {
@@ -126,14 +65,17 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
     origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
   }
 
-  // 2. Resolve AI Model
-  const { networkName, weights } = await resolveModelWeights(targetFamily, targetTier);
+  // 2. Resolve AI Model Config
+  const { networkName, weights } = resolveModelConfig(targetFamily, targetTier);
 
   // Initialize or reconfigure WebSR instance safely
-  if (!websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier) {
+  const needsReconfig = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
+
+  if (needsReconfig) {
     resolution = { width: pw, height: ph };
     currentFamily = targetFamily;
     currentTier = targetTier;
+    currentNetwork = networkName;
 
     if (gpu && upscaled_canvas) {
       try {
@@ -144,19 +86,9 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
           gpu: gpu as any,
           canvas: upscaled_canvas as any
         });
-      } catch (e) {
-        console.warn("[TJP Worker]: WebSR network init failed, falling back to baseline network:", e);
-        try {
-          websr = new WebSR({
-            network_name: 'anime4k/cnn-2x-l' as any,
-            weights: require('./weights/cnn-2x-l-rl.json'),
-            resolution: { width: pw, height: ph },
-            gpu: gpu as any,
-            canvas: upscaled_canvas as any
-          });
-        } catch (err) {
-          console.error("[TJP Worker]: Critical WebSR init failure:", err);
-        }
+        console.log(`[TJP Worker]: Configured ${targetFamily.toUpperCase()} mode (${networkName})`);
+      } catch (err) {
+        console.warn("[TJP Worker]: WebSR init note:", err);
       }
     }
   }
@@ -166,7 +98,7 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
     try {
       await websr.render(bitmap as any);
     } catch (e) {
-      console.warn("[TJP Worker]: Render pass error:", e);
+      console.warn("[TJP Worker]: Render pass note:", e);
     }
   }
 }
