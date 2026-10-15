@@ -34,7 +34,7 @@ module.exports = {
                 use: ["style-loader", "css-loader", "postcss-loader"],
             },
             {
-                test: /\.(wasm|onnx)$/,
+                test: /\.(wasm|onnx|bin)$/,
                 type: 'asset/resource',
             }
         ],
@@ -53,6 +53,7 @@ module.exports = {
             patterns: [
                 { from: "src/img/*.svg", to: "img/[name][ext]", noErrorOnMissing: true },
                 { from: "src/img/*.png", to: "img/[name][ext]", noErrorOnMissing: true },
+                { from: "src/weights/*.bin", to: "weights/[name][ext]", noErrorOnMissing: true }
             ]
         })
     ],
@@ -71,6 +72,14 @@ module.exports = {
     },
     experiments: {
         asyncWebAssembly: true
+    },
+    devServer: {
+        static: {
+            directory: path.join(__dirname, 'dist'),
+        },
+        compress: true,
+        port: 8080,
+        allowedHosts: "all",
     },
     mode: 'production'
 };
