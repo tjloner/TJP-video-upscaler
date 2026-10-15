@@ -145,14 +145,37 @@ async function index(): Promise<void> {
         } else {
             Alpine.store('proTipMessage', 'Detail mode: Reconstructs realistic textures, skin pores, hair, and fabric weave.');
         }
-        await updateLiveVideoPreview();
+        await forcePreviewReRender();
     };
 
     window.selectVideoTier = async (tier: VideoModelTier) => {
         Alpine.store('videoTier', tier);
         Alpine.store('engineMode', tier === 'fast' ? 'fast' : 'deep');
-        await updateLiveVideoPreview();
+        await forcePreviewReRender();
     };
+    async function forcePreviewReRender(): Promise<void> {
+        if (!video) return;
+        try {
+            const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
+            const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'balanced';
+
+            // Extract fresh cropped patch
+            const patchBitmap = patchController 
+                ? await patchController.getCroppedBitmap()
+                : await createImageBitmap(video);
+
+            worker.postMessage({
+                cmd: "updatePreview",
+                family: currentFamily,
+                tier: currentTier,
+                data: {
+                    bitmap: patchBitmap
+                }
+            }, [patchBitmap]);
+        } catch (e) {
+            console.warn("[TJP Studio]: forcePreviewReRender error:", e);
+        }
+    }
 }
 
 function showUnsupported(text: string): void {

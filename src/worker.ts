@@ -17,7 +17,7 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Verified local weights
+// Verified local neural weights
 const weightsRealLife = require('./weights/cnn-2x-l-rl.json');
 const weightsAnime = require('./weights/cnn-2x-l-an.json');
 const weightsFast = require('./weights/cnn-2x-s-an.json');
@@ -29,6 +29,7 @@ function getModelConfig(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' 
   if (family === 'sharpen') {
     return { networkName: 'anime4k/cnn-2x-l', weights: weightsAnime };
   }
+  // Detail mode uses photographic Real-Life weights
   return { networkName: 'anime4k/cnn-2x-l', weights: weightsRealLife };
 }
 
@@ -44,7 +45,7 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
   const pw = bitmap.width;
   const ph = bitmap.height;
 
-  // 1. Draw Left Canvas (Original Raw Frame: pixelated nearest-neighbor)
+  // 1. Render Left Canvas (Raw original untouched frame)
   if (original_canvas) {
     if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
       original_canvas.width = pw * 2;
@@ -59,17 +60,26 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
     }
   }
 
-  // 2. Resolve AI Model
+  // 2. Resolve target model configuration
   const { networkName, weights } = getModelConfig(targetFamily, targetTier);
+  const configChanged = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
 
-  // 3. Setup WebSR ONCE, or use switchNetwork to prevent WebGPU Context crash!
-  if (!websr) {
-    if (upscaled_canvas) {
+  if (configChanged) {
+    resolution = { width: pw, height: ph };
+    currentFamily = targetFamily;
+    currentTier = targetTier;
+
+    // Destroy old WebSR GPU bindings so the driver accepts new weights
+    if (websr && typeof websr.destroy === 'function') {
+      try {
+        websr.destroy();
+      } catch (e) {}
+      websr = null;
+    }
+
+    if (gpu && upscaled_canvas) {
       upscaled_canvas.width = pw * 2;
       upscaled_canvas.height = ph * 2;
-      resolution = { width: pw, height: ph };
-      currentFamily = targetFamily;
-      currentTier = targetTier;
 
       try {
         websr = new WebSR({
@@ -79,44 +89,20 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
           gpu: gpu as any,
           canvas: upscaled_canvas as any
         });
-        console.log(`[TJP Worker]: Initialized WebSR (${networkName})`);
+        console.log(`[TJP Worker]: Rebuilt WebGPU pipeline -> ${targetFamily.toUpperCase()} (${targetTier})`);
       } catch (err) {
-        console.error("[TJP Worker]: WebSR initial configuration error:", err);
-      }
-    }
-  } else {
-    // Reconfigure existing instance WITHOUT destroying OffscreenCanvas context
-    const modelChanged = currentFamily !== targetFamily || currentTier !== targetTier;
-    const sizeChanged = resolution.width !== pw || resolution.height !== ph;
-
-    if (modelChanged || sizeChanged) {
-      resolution = { width: pw, height: ph };
-      currentFamily = targetFamily;
-      currentTier = targetTier;
-
-      try {
-        if (typeof websr.switchNetwork === 'function') {
-          websr.switchNetwork(networkName, weights);
-          console.log(`[TJP Worker]: Switched network to ${networkName}`);
-        } else {
-          // If switchNetwork is not present in 0.0.14, update params directly
-          websr.params.network_name = networkName;
-          websr.params.weights = weights;
-          websr.network = new (websr.constructor as any).NetworkList[networkName](weights);
-        }
-      } catch (e) {
-        console.warn("[TJP Worker]: switchNetwork note:", e);
+        console.error("[TJP Worker]: WebSR reconstruction error:", err);
       }
     }
   }
 
-  // 4. Render Enhanced Frame
+  // 3. Render Enhanced Output to Right Canvas
   if (websr) {
     try {
       await websr.render(bitmap as any);
-      console.log(`[TJP Worker]: Successfully rendered ${targetFamily} frame (${pw}x${ph})`);
+      console.log(`[TJP Worker]: Frame updated on screen (${targetFamily} - ${targetTier})`);
     } catch (e) {
-      console.error("[TJP Worker]: Render execution error:", e);
+      console.error("[TJP Worker]: Render pass error:", e);
     }
   }
 }
