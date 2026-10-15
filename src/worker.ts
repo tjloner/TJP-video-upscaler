@@ -50,7 +50,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
   const pw = Math.floor(bitmap.width / 2) * 2;
   const ph = Math.floor(bitmap.height / 2) * 2;
 
-  // 1. Draw Left Canvas (Original Raw: nearest-neighbor, authentic pixel inspection)
+  // 1. Draw Left Canvas (Original Raw: nearest-neighbor pixelated for authentic contrast)
   if (original_canvas) {
     if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
       original_canvas.width = pw * 2;
@@ -117,11 +117,13 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     }
   }
 
-  // 3. Render Enhanced Output to Right Canvas
-  if (websr) {
+  // 3. Render Enhanced Output to Right Canvas & AWAIT HARDWARE FLUSH
+  if (websr && gpu) {
     try {
       await websr.render(bitmap as any);
-      console.log(`[TJP Worker]: Rendered ${targetFamily} frame (${pw}x${ph})`);
+      // HARDWARE SYNC FLUSH: forces WebGPU to present the finished texture to the screen!
+      await gpu.queue.onSubmittedWorkDone();
+      console.log(`[TJP Worker]: Frame presented on screen -> ${targetFamily.toUpperCase()} (${targetTier})`);
     } catch (e) {
       console.error("[TJP Worker]: Render pass error:", e);
     }
