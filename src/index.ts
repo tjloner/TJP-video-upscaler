@@ -17,6 +17,7 @@ let original_canvas: HTMLCanvasElement;
 let video: HTMLVideoElement;
 let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
+let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
 
 let patchController: PatchPreviewController | null = null;
@@ -361,47 +362,42 @@ async function updateLiveVideoPreview(): Promise<void> {
             ? await patchController.getCroppedBitmap()
             : await createImageBitmap(video);
 
-        worker.postMessage({
-            cmd: "updatePreview",
-            family: currentFamily,
-            tier: currentTier,
-            data: {
-                bitmap: patchBitmap
-            }
-        }, [patchBitmap]);
+        const pw = Math.floor(patchBitmap.width / 2) * 2;
+        const ph = Math.floor(patchBitmap.height / 2) * 2;
+
+        if (!isOffscreenTransferred && upscaled_canvas && original_canvas) {
+            const upscaled = upscaled_canvas.transferControlToOffscreen();
+            const original = original_canvas.transferControlToOffscreen();
+            isOffscreenTransferred = true;
+
+            worker.postMessage({
+                cmd: "init",
+                family: currentFamily,
+                tier: currentTier,
+                data: {
+                    bitmap: patchBitmap,
+                    upscaled,
+                    original,
+                    resolution: { width: pw, height: ph }
+                }
+            }, [patchBitmap, upscaled, original]);
+        } else {
+            worker.postMessage({
+                cmd: "updatePreview",
+                family: currentFamily,
+                tier: currentTier,
+                data: {
+                    bitmap: patchBitmap
+                }
+            }, [patchBitmap]);
+        }
     } catch (e) {
         console.warn("[TJP Studio]: Frame capture error:", e);
     }
 }
 
-// Receive and present rendered frames directly to DOM canvases
 worker.onmessage = function (event: MessageEvent<any>) {
-    if (event.data.cmd === 'previewRendered') {
-        const { original, upscaled, width, height } = event.data;
-
-        const origCanvas = document.getElementById('original') as HTMLCanvasElement;
-        const upCanvas = document.getElementById('upscaled') as HTMLCanvasElement;
-
-        if (origCanvas) {
-            origCanvas.width = width;
-            origCanvas.height = height;
-            const ctx = origCanvas.getContext('2d');
-            if (ctx && original) {
-                ctx.drawImage(original, 0, 0);
-                original.close();
-            }
-        }
-
-        if (upCanvas) {
-            upCanvas.width = width;
-            upCanvas.height = height;
-            const ctx = upCanvas.getContext('2d');
-            if (ctx && upscaled) {
-                ctx.drawImage(upscaled, 0, 0);
-                upscaled.close();
-            }
-        }
-    } else if (event.data.cmd === 'isSupported') {
+    if (event.data.cmd === 'isSupported') {
         if (!event.data.data) return showUnsupported("WebGPU API");
     } else if (event.data.cmd === 'sourceReport') {
         Alpine.store('sourceReport', event.data.data);

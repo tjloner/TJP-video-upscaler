@@ -1,6 +1,7 @@
 import WebSR from '@websr/websr';
 import pipelineProcessor from './processors/pipeline-processor';
 import type {
+  InitData,
   Resolution,
   VideoProfilePreset
 } from './types/worker-messages';
@@ -9,13 +10,16 @@ let gpu: any | false = false;
 let websr: any = null;
 let currentFamily: 'sharpen' | 'detail' = 'detail';
 let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
+let currentNetwork: string = 'anime4k/cnn-2x-l';
 
-let workerUpscaledCanvas: OffscreenCanvas | null = null;
+let upscaled_canvas: OffscreenCanvas | null = null;
+let original_canvas: OffscreenCanvas | null = null;
 let resolution: Resolution = { width: 360, height: 360 };
+let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Bundled neural weights
+// Verified local neural weights
 const weightsRealLife = require('./weights/cnn-2x-l-rl.json');
 const weightsAnime = require('./weights/cnn-2x-l-an.json');
 const weightsFast = require('./weights/cnn-2x-s-an.json');
@@ -38,78 +42,86 @@ async function isSupported(): Promise<void> {
   });
 }
 
-async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detail', targetTier: 'fast' | 'balanced' | 'quality'): Promise<void> {
-  // Guarantee GPU initialized
+async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detail', targetTier: 'fast' | 'balanced' | 'quality'): Promise<void> {
   if (!gpu) {
     gpu = await WebSR.initWebGPU();
   }
 
-  // Ensure dimensions are strictly even multiples of 2
   const pw = Math.floor(bitmap.width / 2) * 2;
   const ph = Math.floor(bitmap.height / 2) * 2;
 
-  // 1. Raw original frame
-  let rawBitmap: ImageBitmap;
-  try {
-    rawBitmap = await createImageBitmap(bitmap, {
-      resizeWidth: pw * 2,
-      resizeHeight: ph * 2,
-      resizeQuality: 'pixelated' as any
-    });
-  } catch {
-    rawBitmap = await createImageBitmap(bitmap, {
-      resizeWidth: pw * 2,
-      resizeHeight: ph * 2,
-      resizeQuality: 'low'
-    });
+  // 1. Draw Left Canvas (Original Raw: nearest-neighbor, authentic pixel inspection)
+  if (original_canvas) {
+    if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
+      original_canvas.width = pw * 2;
+      original_canvas.height = ph * 2;
+    }
+    if (!origCtx) {
+      origCtx = original_canvas.getContext('2d');
+    }
+    if (origCtx) {
+      origCtx.imageSmoothingEnabled = false;
+      origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
+    }
   }
 
   // 2. Resolve model configuration
   const { networkName, weights } = getModelConfig(targetFamily, targetTier);
-  const configChanged = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
+  const modelChanged = currentFamily !== targetFamily || currentTier !== targetTier;
+  const sizeChanged = resolution.width !== pw || resolution.height !== ph;
 
-  if (configChanged || !workerUpscaledCanvas) {
+  if (!websr) {
+    if (upscaled_canvas) {
+      upscaled_canvas.width = pw * 2;
+      upscaled_canvas.height = ph * 2;
+      resolution = { width: pw, height: ph };
+      currentFamily = targetFamily;
+      currentTier = targetTier;
+      currentNetwork = networkName;
+
+      try {
+        websr = new WebSR({
+          network_name: networkName as any,
+          weights: weights,
+          resolution: { width: pw, height: ph },
+          gpu: gpu as any,
+          canvas: upscaled_canvas as any
+        });
+        console.log(`[TJP Worker]: Initialized WebSR -> ${targetFamily.toUpperCase()} (${networkName})`);
+      } catch (err) {
+        console.error("[TJP Worker]: WebSR init error:", err);
+      }
+    }
+  } else if (modelChanged || sizeChanged) {
     resolution = { width: pw, height: ph };
     currentFamily = targetFamily;
     currentTier = targetTier;
+    currentNetwork = networkName;
 
-    if (websr && typeof websr.destroy === 'function') {
-      try { websr.destroy(); } catch (e) {}
-      websr = null;
+    if (upscaled_canvas) {
+      upscaled_canvas.width = pw * 2;
+      upscaled_canvas.height = ph * 2;
     }
 
-    workerUpscaledCanvas = new OffscreenCanvas(pw * 2, ph * 2);
-
     try {
-      websr = new WebSR({
-        network_name: networkName as any,
-        weights: weights,
-        resolution: { width: pw, height: ph },
-        gpu: gpu as any,
-        canvas: workerUpscaledCanvas as any
-      });
-      console.log(`[TJP Worker]: Rebuilt WebGPU pipeline -> ${targetFamily.toUpperCase()} (${targetTier})`);
-    } catch (err) {
-      console.error("[TJP Worker]: WebSR reconstruction error:", err);
+      if (typeof websr.switchNetwork === 'function') {
+        websr.switchNetwork(networkName, weights);
+        console.log(`[TJP Worker]: Switched network -> ${networkName}`);
+      } else {
+        websr.params.network_name = networkName;
+        websr.params.weights = weights;
+        websr.network = new (websr.constructor as any).NetworkList[networkName](weights);
+      }
+    } catch (e) {
+      console.warn("[TJP Worker]: switchNetwork note:", e);
     }
   }
 
-  // 3. Render Enhanced Output & Dispatch to UI
-  if (websr && workerUpscaledCanvas) {
+  // 3. Render Enhanced Output to Right Canvas
+  if (websr) {
     try {
       await websr.render(bitmap as any);
-      
-      const upscaledBitmap = await createImageBitmap(workerUpscaledCanvas);
-
-      (postMessage as any)({
-        cmd: 'previewRendered',
-        original: rawBitmap,
-        upscaled: upscaledBitmap,
-        width: pw * 2,
-        height: ph * 2
-      }, [rawBitmap, upscaledBitmap]);
-
-      console.log(`[TJP Worker]: Fresh frame dispatched to UI (${targetFamily} - ${targetTier})`);
+      console.log(`[TJP Worker]: Rendered ${targetFamily} frame (${pw}x${ph})`);
     } catch (e) {
       console.error("[TJP Worker]: Render pass error:", e);
     }
@@ -125,12 +137,16 @@ self.onmessage = async function (event: MessageEvent<any>) {
         gpu = await WebSR.initWebGPU();
       }
 
+      const config: InitData = event.data.data;
+      upscaled_canvas = config.upscaled;
+      original_canvas = config.original;
+
       const family = (event.data.family as 'sharpen' | 'detail') || 'detail';
       const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || 'balanced';
 
-      if (event.data.data.bitmap) {
-        await renderFrameToCanvases(event.data.data.bitmap, family, tier);
-        event.data.data.bitmap.close();
+      if (config.bitmap) {
+        await renderFrame(config.bitmap, family, tier);
+        config.bitmap.close();
       }
       break;
     }
@@ -146,7 +162,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const family = (event.data.family as 'sharpen' | 'detail') || currentFamily;
       const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || currentTier;
 
-      await renderFrameToCanvases(bitmap, family, tier);
+      await renderFrame(bitmap, family, tier);
       bitmap.close();
       break;
     }
@@ -172,8 +188,8 @@ self.onmessage = async function (event: MessageEvent<any>) {
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
         websr: websr as any,
-        upscaled_canvas: workerUpscaledCanvas || new OffscreenCanvas(360, 360),
-        original_canvas: new OffscreenCanvas(360, 360),
+        upscaled_canvas: upscaled_canvas || new OffscreenCanvas(360, 360),
+        original_canvas: original_canvas || new OffscreenCanvas(360, 360),
         resolution,
         preset: event.data.preset,
         targetScale: event.data.targetScale,

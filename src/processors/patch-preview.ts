@@ -59,7 +59,7 @@ export class PatchPreviewController {
       height: patchH
     };
 
-    // Explicitly set BOTH width and height on playerFrame so it never collapses to 0px
+    // Explicit dimensions on playerFrame so it never collapses to height 0
     this.playerFrame.style.width = `${patchW}px`;
     this.playerFrame.style.height = `${patchH}px`;
     this.playerFrame.style.minWidth = `${patchW}px`;
