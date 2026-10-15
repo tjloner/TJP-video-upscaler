@@ -21,6 +21,16 @@ let resolvePause: (() => void) | null = null;
 
 const weightBuffers: Record<string, any> = {};
 
+// Normalizes weights so .layers is always present (eliminates undefined conv2d_tf crash)
+function normalizeWeights(weights: any): any {
+  if (!weights) return null;
+  if (weights.format === 'unet' || weights.layers) return weights;
+  if (weights.conv2d_tf || weights.conv2d_tf1) {
+    return { name: "", layers: weights };
+  }
+  return { name: "", layers: weights };
+}
+
 function parseBinaryWeights(buffer: ArrayBuffer): any {
   const bytes = new Uint8Array(buffer);
   const r = bytes[0], o = bytes[1], a = bytes[2], s = bytes[3];
@@ -29,7 +39,7 @@ function parseBinaryWeights(buffer: ArrayBuffer): any {
   if (r === 65 && o === 52 && a === 75 && s === 0) {
     const view = new DataView(buffer);
     let offset = 4;
-    offset += 4; // skip version
+    offset += 4;
     const layerCount = view.getUint32(offset, true);
     offset += 4;
     const layers: Record<string, any> = {};
@@ -66,14 +76,8 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
   let networkName = 'katana/unet-u24';
 
   if (family === 'sharpen') {
-    // Avoid cnn-28 buffer allocation overflow which blanks the right side
-    if (tier === 'fast') {
-      fileName = 'cnn-8.bin';
-      networkName = 'anime4k/cnn-2x-l';
-    } else {
-      fileName = 'cnn-16.bin';
-      networkName = 'anime4k/cnn-2x-16';
-    }
+    fileName = 'cnn-8.bin';
+    networkName = 'anime4k/cnn-2x-l';
   } else {
     fileName = 'unet-u24.bin';
     networkName = 'katana/unet-u24';
@@ -91,10 +95,13 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
     weightBuffers[fileName] = parsed;
     return { networkName, weights: parsed };
   } catch (err) {
-    console.warn(`[TJP Engine]: Fallback for ${fileName}:`, err);
+    console.warn(`[TJP Engine]: Loading normalized bundled weights for ${family}:`, err);
+    const rawBundle = family === 'detail'
+      ? require('./weights/cnn-2x-l-rl.json')
+      : require('./weights/cnn-2x-l-an.json');
     return {
       networkName: 'anime4k/cnn-2x-l',
-      weights: family === 'detail' ? require('./weights/cnn-2x-l-rl.json') : require('./weights/cnn-2x-l-an.json')
+      weights: normalizeWeights(rawBundle)
     };
   }
 }
@@ -152,6 +159,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
           gpu: gpu as any,
           canvas: upscaled_canvas as any
         });
+        console.log(`[TJP Engine]: Initialized WebSR -> ${networkName}`);
       } catch (err) {
         console.error("[TJP Engine]: WebSR init error:", err);
       }
@@ -169,6 +177,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
 
     try {
       websr.switchNetwork(networkName, weights);
+      console.log(`[TJP Engine]: Switched network -> ${networkName}`);
     } catch (e) {
       console.warn("[TJP Engine]: switchNetwork note:", e);
     }
@@ -179,6 +188,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     try {
       await websr.render(bitmap as any);
       await gpu.queue.onSubmittedWorkDone();
+      console.log(`[TJP Engine]: Frame presented on screen -> ${targetFamily.toUpperCase()} (${targetTier})`);
     } catch (e) {
       console.error("[TJP Engine]: Render pass error:", e);
     }

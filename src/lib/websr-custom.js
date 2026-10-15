@@ -1,5 +1,5 @@
 // TJP AI Studio — Custom High-Performance WebSR Core
-// Native U-Net (katana/unet-u24) + CNN-28 + Float16 Support
+// Native U-Net (katana/unet-u24) + CNN-28 + Auto-Sync Buffer Protection
 const WebSR = (() => {
   "use strict";
   var t = {
@@ -60,7 +60,7 @@ const WebSR = (() => {
             e = t ? "textureSampleBaseClampToEdge(inputTexture, ourSampler, input.tex_coord)" : "textureSample(inputTexture, ourSampler, input.tex_coord)";
           this.shader = this.device.createShaderModule({
             label: `${this.label}-shader`,
-            code: `\n                ${this.defaultVertexShader()}\n                @group(0) @binding(0) var<storage, read_write> inputBuffer0: array<vec4f>;\n                @group(0) @binding(1) var inputTexture: ${t ? "texture_external" : "texture_2d<f32>"};\n                @group(0) @binding(2) var ourSampler: sampler;\n\n                @fragment fn fragmentMain(input: VertexShaderOutput) -> @location(0) vec4f {\n                    let x = ${this.resolution.width}.0 * (input.tex_coord.x);\n                    let y = ${this.resolution.height}.0 * (input.tex_coord.y);\n\n                    let lr_x = u32(floor(x));\n                    let lr_y = u32(floor(y));\n                    let lr_idx = lr_y * ${Math.floor(this.resolution.width)}u + lr_x;\n\n                    let x_floor = u32(fract(x) * 2.0);\n                    let y_floor = u32(fract(y) * 2.0);\n                    let sub: u32 = x_floor + y_floor * 2u;\n\n                    let r_residual = inputBuffer0[lr_idx * 4u + 0u][sub];\n                    let g_residual = inputBuffer0[lr_idx * 4u + 1u][sub];\n                    let b_residual = inputBuffer0[lr_idx * 4u + 2u][sub];\n\n                    let bilinear = ${e};\n                    return bilinear + vec4f(r_residual, g_residual, b_residual, 0.0);\n                }\n            `
+            code: `\n                ${this.defaultVertexShader()}\n                @group(0) @binding(0) var<storage, read_write> inputBuffer0: array<vec4f>;\n                @group(0) @binding(1) var inputTexture: ${t ? "texture_external" : "texture_2d<f32>"};\n                @group(0) @binding(2) var ourSampler: sampler;\n\n                @fragment fn fragmentMain(input: VertexShaderOutput) -> @location(0) vec4f {\n                    let x = ${this.resolution.width}.0 * (input.tex_coord.x);\n                    let y = ${this.resolution.height}.0 * (input.tex_coord.y);\n                    let lr_x = u32(floor(x));\n                    let lr_y = u32(floor(y));\n                    let lr_idx = lr_y * ${Math.floor(this.resolution.width)}u + lr_x;\n                    let x_floor = u32(fract(x) * 2.0);\n                    let y_floor = u32(fract(y) * 2.0);\n                    let sub: u32 = x_floor + y_floor * 2u;\n                    let r_residual = inputBuffer0[lr_idx * 4u + 0u][sub];\n                    let g_residual = inputBuffer0[lr_idx * 4u + 1u][sub];\n                    let b_residual = inputBuffer0[lr_idx * 4u + 2u][sub];\n                    let bilinear = ${e};\n                    return bilinear + vec4f(r_residual, g_residual, b_residual, 0.0);\n                }\n            `
           }), this.pipeline = this.device.createRenderPipeline(this.defaultPipelineConfig()), this.bindGroup = this.defaultBindGroup(), this.renderPassDescriptor = this.defaultRenderPassDescriptor();
         }
         defaultBindGroup() {
@@ -113,11 +113,18 @@ const WebSR = (() => {
           return new Float32Array(r.getMappedRange());
         }
         cleanup() {
-          for (const t of Object.keys(this.buffers)) this.buffers[t].destroy(), delete this.buffers[t];
-          for (const t of Object.keys(this.textures)) this.textures[t].destroy(), delete this.textures[t];
+          for (const t of Object.keys(this.buffers)) {
+            try { this.buffers[t].destroy(); } catch (e) {}
+            delete this.buffers[t];
+          }
+          for (const t of Object.keys(this.textures)) {
+            try { this.textures[t].destroy(); } catch (e) {}
+            delete this.textures[t];
+          }
         }
         destroy() {
-          this.device.destroy(), this.destroyed = !0;
+          this.cleanup();
+          this.destroyed = !0;
         }
         useF16() {
           var t;
@@ -497,7 +504,7 @@ const WebSR = (() => {
           super(t, e, i), this.label = "Anime4KConv56x4";
           const r = i.weights, n = i.bias;
           this.createUniform("kernel_offsets", "array<vec4f, 9>"), this.createUniform("kernels", "array<mat4x4f, 126>"), this.createUniform("bias", "vec4f"),
-          this.shader = this.createStandardShader(`\n          @compute @workgroup_size(${this.num_work_groups}, ${this.num_work_groups}) fn main(@builtin(global_invocation_id) id: vec3<u32>) {\n                let x = id.x;\n                let y = id.y;\n                let i = id.y*${this.resolution.width} + x;\n                var result = vec4f(0.0, 0.0, 0.0, 0.0);\n                let coord = vec2<i32>(i32(x), i32(y));\n                 for(var k = 0u; k < 9u; k++){\n                   let pixel_loc = coord + vec2<i32>(kernel_offsets[k].xy);\n                   if (pixel_loc.x >= 0 && pixel_loc.x < ${this.resolution.width} && pixel_loc.y >= 0 && pixel_loc.y < ${this.resolution.height}) {\n                     let buff_ind = pixel_loc.y*${this.resolution.width} + pixel_loc.x;\n                     let pix_val0 = inputBuffer0[buff_ind];\n                     let pix_val1 = inputBuffer1[buff_ind];\n                     let pix_val2 = inputBuffer2[buff_ind];\n                     let pix_val3 = inputBuffer3[buff_ind];\n                     let pix_val4 = inputBuffer4[buff_ind];\n                     let pix_val5 = inputBuffer5[buff_ind];\n                     let pix_val6 = inputBuffer6[buff_ind];\n                     result += kernels[k]*max(pix_val0, vec4f(0.0));\n                     result += kernels[k+9u]*max(pix_val1, vec4f(0.0));\n                     result += kernels[k+18u]*max(pix_val2, vec4f(0.0));\n                     result += kernels[k+27u]*max(pix_val3, vec4f(0.0));\n                     result += kernels[k+36u]*max(pix_val4, vec4f(0.0));\n                     result += kernels[k+45u]*max(pix_val5, vec4f(0.0));\n                     result += kernels[k+54u]*max(pix_val6, vec4f(0.0));\n                     result += kernels[k+63u]*max(-1.0*pix_val0, vec4f(0.0));\n                     result += kernels[k+72u]*max(-1.0*pix_val1, vec4f(0.0));\n                     result += kernels[k+81u]*max(-1.0*pix_val2, vec4f(0.0));\n                     result += kernels[k+90u]*max(-1.0*pix_val3, vec4f(0.0));\n                     result += kernels[k+99u]*max(-1.0*pix_val4, vec4f(0.0));\n                     result += kernels[k+108u]*max(-1.0*pix_val5, vec4f(0.0));\n                     result += kernels[k+117u]*max(-1.0*pix_val6, vec4f(0.0));\n                   }\n                 }\n                result += bias;\n                outputBuffer[i] = result;\n          }\n        `),
+          this.shader = this.createStandardShader(`\n          @compute @workgroup_size(${this.num_work_groups}, ${this.num_work_groups}) fn main(@builtin(global_invocation_id) id: vec3<u32>) {\n                let x = id.x;\n                let y = id.y;\n                let i = id.y*${this.resolution.width} + x;\n                var result = vec4f(0.0, 0.0, 0.0, 0.0);\n                let coord = vec2<i32>(i32(x), i32(y));\n                 for(var k = 0u; k < 9u; k++){\n                   let pixel_loc = coord + vec2<i32>(kernel_offsets[k].xy);\n                   if (pixel_loc.x >= 0 && pixel_loc.x < ${this.resolution.width} && pixel_loc.y >= 0 && pixel_loc.y < ${this.resolution.height}) {\n                     let buff_ind = pixel_loc.y*${this.resolution.width} + pixel_loc.x;\n                     let pix_val0 = inputBuffer0[buff_ind];\n                     let pix_val1 = inputBuffer1[buff_ind];\n                     let pix_val2 = inputBuffer2[buff_ind];\n                     let pix_val3 = inputBuffer3[buff_ind];\n                     let pix_val4 = inputBuffer4[buff_ind];\n                     let pix_val5 = inputBuffer5[buff_ind];\n                     let pix_val6 = inputBuffer6[buff_ind];\n                     result += kernels[k]*max(pix_val0, vec4f(0.0));\n                     result += kernels[k+9u]*max(pix_val1, vec4f(0.0));\n                     result += kernels[k+18u]*max(pix_val2, vec4f(0.0));\n                     result += kernels[k+27u]*max(pix_val3, vec4f(0.0));\n                     result += kernels[k+36u]*max(-1.0*pix_val0, vec4f(0.0));\n                     result += kernels[k+45u]*max(-1.0*pix_val1, vec4f(0.0));\n                     result += kernels[k+54u]*max(-1.0*pix_val2, vec4f(0.0));\n                     result += kernels[k+63u]*max(-1.0*pix_val3, vec4f(0.0));\n                     result += kernels[k+72u]*max(-1.0*pix_val4, vec4f(0.0));\n                     result += kernels[k+81u]*max(-1.0*pix_val5, vec4f(0.0));\n                     result += kernels[k+90u]*max(-1.0*pix_val6, vec4f(0.0));\n                     result += kernels[k+99u]*max(-1.0*pix_val0, vec4f(0.0));\n                     result += kernels[k+108u]*max(-1.0*pix_val1, vec4f(0.0));\n                     result += kernels[k+117u]*max(-1.0*pix_val2, vec4f(0.0));\n                   }\n                 }\n                result += bias;\n                outputBuffer[i] = result;\n          }\n        `),
           this.setUniform("kernel_offsets", new Float32Array([-1, -1, 0, 0, -1, 0, 0, 0, -1, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, -1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0])),
           this.setUniform("kernels", new Float32Array(r)), this.setUniform("bias", new Float32Array(n)), this.defaultSetup();
         }
@@ -726,6 +733,25 @@ const WebSR = (() => {
         destroy() { this.context.destroy(); }
       };
     },
+    242: (t, e) => {
+      Object.defineProperty(e, "__esModule", { value: !0 }), e.default = class {
+        constructor(t, e) {
+          this.context = globalThis.context, this.device = this.context.device, this.sampler = this.device.createSampler({ addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear" });
+          const i = this.device.createShaderModule({
+            label: "downscale-shader",
+            code: "struct VertexShaderOutput { @builtin(position) position: vec4f, @location(0) tex_coord: vec2f };\n@vertex\nfn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexShaderOutput {\n  let pos = array(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));\n  var vsOutput: VertexShaderOutput;\n  let xy = pos[vertexIndex];\n  vsOutput.position = vec4f(xy, 0.0, 1.0);\n  vsOutput.tex_coord = xy * 0.5 + 0.5;\n  vsOutput.tex_coord.y = 1.0 - vsOutput.tex_coord.y;\n  return vsOutput;\n}\n@group(0) @binding(0) var inputTexture: texture_2d<f32>;\n@group(0) @binding(1) var ourSampler: sampler;\n@fragment\nfn fragmentMain(input: VertexShaderOutput) -> @location(0) vec4f {\n  return textureSample(inputTexture, ourSampler, input.tex_coord);\n}"
+          });
+          this.pipeline = this.device.createRenderPipeline({ label: "downscale-pipeline", layout: "auto", vertex: { module: i, entryPoint: "vertexMain" }, fragment: { module: i, entryPoint: "fragmentMain", targets: [{ format: e.format }] } });
+          this.bindGroup = this.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: t.createView() }, { binding: 1, resource: this.sampler }] });
+          this.renderPassDescriptor = { label: "downscale-render-pass", colorAttachments: [{ view: e.createView(), clearValue: [0, 0, 0, 1], loadOp: "clear", storeOp: "store" }] };
+        }
+        setOutput(t) { this.renderPassDescriptor = { label: "downscale-render-pass", colorAttachments: [{ view: t.createView(), clearValue: [0, 0, 0, 1], loadOp: "clear", storeOp: "store" }] }; }
+        run() {
+          const t = this.device.createCommandEncoder({ label: "downscale" }), e = t.beginRenderPass(this.renderPassDescriptor);
+          e.setPipeline(this.pipeline), e.setBindGroup(0, this.bindGroup), e.draw(6), e.end(), this.device.queue.submit([t.finish()]);
+        }
+      };
+    },
     535: (t, e, i) => {
       Object.defineProperty(e, "__esModule", { value: !0 });
       const r = i(23);
@@ -746,7 +772,7 @@ const WebSR = (() => {
     },
     540: function (t, e, i) {
       Object.defineProperty(e, "__esModule", { value: !0 });
-      const n = i(58), s = i(518), o = i(386), a = i(116), l = i(704), c = i(168), u = i(646);
+      const n = i(58), s = i(518), o = i(386), a = i(116), l = i(704);
       class d {
         constructor(t) {
           if (this.initialized = !1, this.alphaCache = new WeakMap, !o.NetworkList[t.network_name])
@@ -759,12 +785,23 @@ const WebSR = (() => {
           const e = null !== (t = this.params.outputResolution) && void 0 !== t ? t : { width: this.canvasResolution.width * this.scale, height: this.canvasResolution.height * this.scale };
           this.canvas.width = e.width, this.canvas.height = e.height,
           this.context = new n.default(this.params.gpu, this.processResolution, this.canvasResolution, this.canvas, this.scale, this.debug, e, this.params.precision),
-          globalThis.context = this.context,
-          this.network = new o.NetworkList[this.params.network_name](this.params.weights),
+          globalThis.context = this.context;
+          
+          // Auto-normalize weights so missing .layers never crashes with undefined conv2d_tf
+          let w = this.params.weights;
+          if (w && !w.layers && !w.format && (w.conv2d_tf || w.conv2d_tf1)) {
+            w = { name: "", layers: w };
+          }
+
+          this.network = new o.NetworkList[this.params.network_name](w),
           this.renderer = new s.default(this.network, this.nominalTileResolution, o.NetworkTilePadding[this.params.network_name]);
           this.initialized = !0;
         }
-        switchNetwork(t, e) {
+        async switchNetwork(t, e) {
+          // AWAIT GPU FLUSH before cleaning up buffers to prevent "used in submit while destroyed" error!
+          if (this.params.gpu && this.params.gpu.queue) {
+            try { await this.params.gpu.queue.onSubmittedWorkDone(); } catch (err) {}
+          }
           this.params = Object.assign(Object.assign({}, this.params), { network_name: t, weights: e }),
           this.context && this.context.cleanup(),
           this.planTiles(this.canvasResolution.width, this.canvasResolution.height),
@@ -826,7 +863,12 @@ const WebSR = (() => {
           this.pendingCalibration && (await this.pendingCalibration, this.pendingCalibration = void 0),
           await this.renderer.render(t, e);
         }
-        destroy() { this.context && this.context.destroy(); }
+        async destroy() { 
+          if (this.params.gpu && this.params.gpu.queue) {
+            try { await this.params.gpu.queue.onSubmittedWorkDone(); } catch (err) {}
+          }
+          this.context && this.context.cleanup(); 
+        }
       }
       d.parseBinaryWeights = l.parseBinaryWeights,
       d.parseUNetWeights = l.parseUNetWeights,
@@ -1047,10 +1089,11 @@ const WebSR = (() => {
         }
         async feedForward(t, e) {
           this.context.input = t;
-          this.layers[0].inputs[0] = t, this.layers[1].inputs[0] = t, this.layers[this.layers.length - 1].inputs[3] = t;
+          this.layers[0].inputs[0] = t, this.layers[1].inputs[0] = t,
+          this.layers[this.layers.length - 1].inputs[3] = t;
           this.layers[0].lazyLoadSetup(), this.layers[1].lazyLoadSetup();
           const i = this.lastLayer();
-          i instanceof s.default && i.setOutput(e), this.layers[this.layers.length - 1].lazyLoadSetup(), this.layers.forEach((t => t.run()));
+          i instanceof s.default && i.setOutput(e), this.layers[this.layers.length - 1].lazyLoadSetup(), this.layers.forEach((function (t) { t.run(); }));
         }
       }
       e.default = d;
