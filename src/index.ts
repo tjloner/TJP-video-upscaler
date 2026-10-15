@@ -14,10 +14,12 @@ const worker = new Worker(new URL('./worker.ts', import.meta.url));
 
 let upscaled_canvas: HTMLCanvasElement;
 let original_canvas: HTMLCanvasElement;
+let upscaled_ctx: CanvasRenderingContext2D | null = null;
+let original_ctx: CanvasRenderingContext2D | null = null;
+
 let video: HTMLVideoElement;
 let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
-let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
 
 let patchController: PatchPreviewController | null = null;
@@ -114,6 +116,9 @@ async function index(): Promise<void> {
     upscaled_canvas = document.getElementById("upscaled") as HTMLCanvasElement;
     original_canvas = document.getElementById('original') as HTMLCanvasElement;
 
+    if (upscaled_canvas) upscaled_ctx = upscaled_canvas.getContext('2d');
+    if (original_canvas) original_ctx = original_canvas.getContext('2d');
+
     if (!("VideoEncoder" in window)) return showUnsupported("WebCodecs API");
     if (!window.showSaveFilePicker) return showUnsupported("File System Access API");
 
@@ -145,37 +150,14 @@ async function index(): Promise<void> {
         } else {
             Alpine.store('proTipMessage', 'Detail mode: Reconstructs realistic textures, skin pores, hair, and fabric weave.');
         }
-        await forcePreviewReRender();
+        await updateLiveVideoPreview();
     };
 
     window.selectVideoTier = async (tier: VideoModelTier) => {
         Alpine.store('videoTier', tier);
         Alpine.store('engineMode', tier === 'fast' ? 'fast' : 'deep');
-        await forcePreviewReRender();
+        await updateLiveVideoPreview();
     };
-    async function forcePreviewReRender(): Promise<void> {
-        if (!video) return;
-        try {
-            const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
-            const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'balanced';
-
-            // Extract fresh cropped patch
-            const patchBitmap = patchController 
-                ? await patchController.getCroppedBitmap()
-                : await createImageBitmap(video);
-
-            worker.postMessage({
-                cmd: "updatePreview",
-                family: currentFamily,
-                tier: currentTier,
-                data: {
-                    bitmap: patchBitmap
-                }
-            }, [patchBitmap]);
-        } catch (e) {
-            console.warn("[TJP Studio]: forcePreviewReRender error:", e);
-        }
-    }
 }
 
 function showUnsupported(text: string): void {
@@ -285,24 +267,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         const playerFrame = document.getElementById('player-frame');
         const minimapCanvas = document.getElementById('patch-minimap') as HTMLCanvasElement;
         const viewportBox = document.getElementById('patch-viewport-box') as HTMLElement;
-
-        const patchDisplaySize = 400;
-
-        if (playerFrame) {
-            playerFrame.style.width = `${patchDisplaySize}px`;
-            playerFrame.style.height = `${patchDisplaySize}px`;
-            playerFrame.style.minWidth = `${patchDisplaySize}px`;
-            playerFrame.style.minHeight = `${patchDisplaySize}px`;
-        }
-
-        if (upscaled_canvas && original_canvas) {
-            upscaled_canvas.width = patchDisplaySize * 2;
-            upscaled_canvas.height = patchDisplaySize * 2;
-            original_canvas.width = patchDisplaySize * 2;
-            original_canvas.height = patchDisplaySize * 2;
-        }
-
         const compareContainer = playerFrame?.parentElement as HTMLElement;
+
         if (minimapCanvas && viewportBox && playerFrame && compareContainer) {
             patchController = new PatchPreviewController({
                 video,
@@ -399,57 +365,50 @@ async function updateLiveVideoPreview(): Promise<void> {
 
     try {
         const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
-        const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'quality';
+        const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'balanced';
 
-        // Extract cropped 1:1 patch
         const patchBitmap = patchController 
             ? await patchController.getCroppedBitmap()
             : await createImageBitmap(video);
 
-        const pw = patchBitmap.width;
-        const ph = patchBitmap.height;
-
-        // CRITICAL FIX: Lock playerFrame to the exact pixel aspect ratio of the crop!
-        const playerFrame = document.getElementById('player-frame');
-        if (playerFrame) {
-            playerFrame.style.width = `${pw}px`;
-            playerFrame.style.height = `${ph}px`;
-            playerFrame.style.aspectRatio = `${pw} / ${ph}`;
-        }
-
-        if (!isOffscreenTransferred && upscaled_canvas && original_canvas) {
-            const upscaled = upscaled_canvas.transferControlToOffscreen();
-            const original = original_canvas.transferControlToOffscreen();
-            isOffscreenTransferred = true;
-
-            worker.postMessage({
-                cmd: "init",
-                family: currentFamily,
-                tier: currentTier,
-                data: {
-                    bitmap: patchBitmap,
-                    upscaled,
-                    original,
-                    resolution: { width: pw, height: ph }
-                }
-            }, [patchBitmap, upscaled, original]);
-        } else {
-            worker.postMessage({
-                cmd: "updatePreview",
-                family: currentFamily,
-                tier: currentTier,
-                data: {
-                    bitmap: patchBitmap
-                }
-            }, [patchBitmap]);
-        }
+        // Tell worker to render preview using transferToImageBitmap pipeline
+        worker.postMessage({
+            cmd: "updatePreview",
+            family: currentFamily,
+            tier: currentTier,
+            data: {
+                bitmap: patchBitmap
+            }
+        }, [patchBitmap]);
     } catch (e) {
         console.warn("[TJP Studio]: Frame capture error:", e);
     }
 }
 
+// Handle all messages from worker
 worker.onmessage = function (event: MessageEvent<any>) {
-    if (event.data.cmd === 'isSupported') {
+    if (event.data.cmd === 'previewRendered') {
+        // PRESENTATION TO DOM CANVASES
+        const { original, upscaled, width, height } = event.data;
+
+        if (original_canvas && original_ctx && original) {
+            if (original_canvas.width !== width || original_canvas.height !== height) {
+                original_canvas.width = width;
+                original_canvas.height = height;
+            }
+            original_ctx.drawImage(original, 0, 0);
+            original.close();
+        }
+
+        if (upscaled_canvas && upscaled_ctx && upscaled) {
+            if (upscaled_canvas.width !== width || upscaled_canvas.height !== height) {
+                upscaled_canvas.width = width;
+                upscaled_canvas.height = height;
+            }
+            upscaled_ctx.drawImage(upscaled, 0, 0);
+            upscaled.close();
+        }
+    } else if (event.data.cmd === 'isSupported') {
         if (!event.data.data) return showUnsupported("WebGPU API");
     } else if (event.data.cmd === 'sourceReport') {
         Alpine.store('sourceReport', event.data.data);

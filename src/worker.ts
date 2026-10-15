@@ -1,7 +1,6 @@
 import WebSR from '@websr/websr';
 import pipelineProcessor from './processors/pipeline-processor';
 import type {
-  InitData,
   Resolution,
   VideoProfilePreset
 } from './types/worker-messages';
@@ -10,10 +9,10 @@ let gpu: any | false = false;
 let websr: any = null;
 let currentFamily: 'sharpen' | 'detail' = 'detail';
 let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
-let upscaled_canvas: OffscreenCanvas;
-let original_canvas: OffscreenCanvas;
+
+// Worker-internal render canvases (independent of DOM detachment)
+let workerUpscaledCanvas: OffscreenCanvas | null = null;
 let resolution: Resolution = { width: 360, height: 360 };
-let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
@@ -29,78 +28,76 @@ function getModelConfig(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' 
   if (family === 'sharpen') {
     return { networkName: 'anime4k/cnn-2x-l', weights: weightsAnime };
   }
-  // Detail mode uses photographic Real-Life weights
   return { networkName: 'anime4k/cnn-2x-l', weights: weightsRealLife };
 }
 
 async function isSupported(): Promise<void> {
   gpu = await WebSR.initWebGPU();
-  postMessage({
+  (postMessage as any)({
     cmd: 'isSupported',
     data: gpu !== false
-  } as any);
+  });
 }
 
 async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detail', targetTier: 'fast' | 'balanced' | 'quality'): Promise<void> {
   const pw = bitmap.width;
   const ph = bitmap.height;
 
-  // 1. Render Left Canvas (Raw original untouched frame)
-  if (original_canvas) {
-    if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
-      original_canvas.width = pw * 2;
-      original_canvas.height = ph * 2;
-    }
-    if (!origCtx) {
-      origCtx = original_canvas.getContext('2d');
-    }
-    if (origCtx) {
-      origCtx.imageSmoothingEnabled = false;
-      origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
-    }
-  }
+  // 1. Prepare raw original bitmap (nearest-neighbor 2x for authentic comparison)
+  const rawBitmap = await createImageBitmap(bitmap, {
+    resizeWidth: pw * 2,
+    resizeHeight: ph * 2,
+    resizeQuality: 'pixelated' as any
+  });
 
   // 2. Resolve target model configuration
   const { networkName, weights } = getModelConfig(targetFamily, targetTier);
   const configChanged = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
 
-  if (configChanged) {
+  if (configChanged || !workerUpscaledCanvas) {
     resolution = { width: pw, height: ph };
     currentFamily = targetFamily;
     currentTier = targetTier;
 
-    // Destroy old WebSR GPU bindings so the driver accepts new weights
     if (websr && typeof websr.destroy === 'function') {
-      try {
-        websr.destroy();
-      } catch (e) {}
+      try { websr.destroy(); } catch (e) {}
       websr = null;
     }
 
-    if (gpu && upscaled_canvas) {
-      upscaled_canvas.width = pw * 2;
-      upscaled_canvas.height = ph * 2;
+    workerUpscaledCanvas = new OffscreenCanvas(pw * 2, ph * 2);
 
-      try {
-        websr = new WebSR({
-          network_name: networkName as any,
-          weights: weights,
-          resolution: { width: pw, height: ph },
-          gpu: gpu as any,
-          canvas: upscaled_canvas as any
-        });
-        console.log(`[TJP Worker]: Rebuilt WebGPU pipeline -> ${targetFamily.toUpperCase()} (${targetTier})`);
-      } catch (err) {
-        console.error("[TJP Worker]: WebSR reconstruction error:", err);
-      }
+    try {
+      websr = new WebSR({
+        network_name: networkName as any,
+        weights: weights,
+        resolution: { width: pw, height: ph },
+        gpu: gpu as any,
+        canvas: workerUpscaledCanvas as any
+      });
+      console.log(`[TJP Worker]: Rebuilt WebGPU pipeline -> ${targetFamily.toUpperCase()} (${targetTier})`);
+    } catch (err) {
+      console.error("[TJP Worker]: WebSR reconstruction error:", err);
     }
   }
 
-  // 3. Render Enhanced Output to Right Canvas
-  if (websr) {
+  // 3. Render Enhanced Output to internal worker canvas
+  if (websr && workerUpscaledCanvas) {
     try {
       await websr.render(bitmap as any);
-      console.log(`[TJP Worker]: Frame updated on screen (${targetFamily} - ${targetTier})`);
+      
+      // Grab rendered bitmap directly from worker canvas
+      const upscaledBitmap = await createImageBitmap(workerUpscaledCanvas);
+
+      // Post both bitmaps directly to main thread for guaranteed instantaneous DOM presentation
+      (postMessage as any)({
+        cmd: 'previewRendered',
+        original: rawBitmap,
+        upscaled: upscaledBitmap,
+        width: pw * 2,
+        height: ph * 2
+      }, [rawBitmap, upscaledBitmap]);
+
+      console.log(`[TJP Worker]: Fresh frame dispatched to UI (${targetFamily} - ${targetTier})`);
     } catch (e) {
       console.error("[TJP Worker]: Render pass error:", e);
     }
@@ -116,16 +113,12 @@ self.onmessage = async function (event: MessageEvent<any>) {
         gpu = await WebSR.initWebGPU();
       }
 
-      const config: InitData = event.data.data;
-      upscaled_canvas = config.upscaled;
-      original_canvas = config.original;
-
       const family = (event.data.family as 'sharpen' | 'detail') || 'detail';
       const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || 'balanced';
 
-      if (config.bitmap) {
-        await renderFrameToCanvases(config.bitmap, family, tier);
-        config.bitmap.close();
+      if (event.data.data.bitmap) {
+        await renderFrameToCanvases(event.data.data.bitmap, family, tier);
+        event.data.data.bitmap.close();
       }
       break;
     }
@@ -149,7 +142,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
     case 'pause':
       if (!pauseLock) {
         pauseLock = new Promise(resolve => { resolvePause = resolve; });
-        postMessage({ cmd: 'paused' } as any);
+        (postMessage as any)({ cmd: 'paused' });
       }
       break;
 
@@ -158,7 +151,7 @@ self.onmessage = async function (event: MessageEvent<any>) {
         resolvePause();
         pauseLock = null;
         resolvePause = null;
-        postMessage({ cmd: 'resumed' } as any);
+        (postMessage as any)({ cmd: 'resumed' });
       }
       break;
 
@@ -167,8 +160,8 @@ self.onmessage = async function (event: MessageEvent<any>) {
         inputHandle: event.data.inputHandle,
         outputHandle: event.data.outputHandle,
         websr: websr as any,
-        upscaled_canvas,
-        original_canvas,
+        upscaled_canvas: workerUpscaledCanvas || new OffscreenCanvas(360, 360),
+        original_canvas: new OffscreenCanvas(360, 360),
         resolution,
         preset: event.data.preset,
         targetScale: event.data.targetScale,
