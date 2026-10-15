@@ -1,5 +1,6 @@
 import Alpine from 'alpinejs';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
+import { enhanceAudioFile } from './processors/audio-processor';
 import type { WorkerRequestMessage, EngineMode, VideoProfilePreset } from './types/worker-messages';
 
 import 'bootstrap';
@@ -23,6 +24,9 @@ let originalImageSrcUrl: string = '';
 let currentUpscaledBlobUrl: string = '';
 let imageDownloadName = "enhanced-image.png";
 
+export type VideoModelFamily = 'sharpen' | 'detail';
+export type VideoModelTier = 'fast' | 'balanced' | 'quality';
+
 export interface ResolutionTargetOption {
     label: string;
     targetWidth: number;
@@ -37,33 +41,35 @@ declare global {
         chooseFile: (e?: Event) => Promise<void>;
         initRecording: () => Promise<void>;
         selectTargetResolution: (index: number) => void;
-        selectEngineMode: (mode: EngineMode) => void;
-        selectVideoProfile: (profile: VideoProfilePreset) => void;
+        selectVideoFamily: (family: VideoModelFamily) => void;
+        selectVideoTier: (tier: VideoModelTier) => void;
         seekToTimestamp: (timeSeconds: number) => void;
         toggleZoomMode: () => void;
         togglePause: () => void;
         showSaveFilePicker: (options?: any) => Promise<FileSystemFileHandle>;
         showOpenFilePicker: (options?: any) => Promise<FileSystemFileHandle[]>;
-        switchAppMode: (mode: 'video' | 'image') => void;
+        switchAppMode: (mode: 'video' | 'image' | 'audio') => void;
         chooseImageFile: (e?: Event) => Promise<void>;
         startImageUpscale: () => Promise<void>;
         updateImageScale: (scale: number) => void;
         updateImagePreset: (preset: ImageModelPreset) => void;
+        chooseAudioFile: (e?: Event) => Promise<void>;
     }
 }
 
 document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
-    // Video Stores
+    // Video Stores (Adopting Sharpen vs Detail Family)
     Alpine.store('appMode', 'video');
     Alpine.store('state', 'init');
     Alpine.store('target', 'blob');
     Alpine.store('download_url', '');
     Alpine.store('availableOptions', [] as ResolutionTargetOption[]);
     Alpine.store('selectedOptionIndex', 0);
+    Alpine.store('videoFamily', 'detail' as VideoModelFamily);
+    Alpine.store('videoTier', 'balanced' as VideoModelTier);
     Alpine.store('engineMode', 'deep');
-    Alpine.store('videoProfile', 'photo' as VideoProfilePreset);
     Alpine.store('proTipMessage', '');
     Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
@@ -76,19 +82,28 @@ async function index(): Promise<void> {
     Alpine.store('filename', '');
     Alpine.store('error', '');
 
-    // Image Stores (With ML Progress Tracking)
+    // Image Stores (ESRGAN Neural Core)
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 4);
-    Alpine.store('imagePreset', 'photo' as ImageModelPreset);
+    Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
     Alpine.store('imageWidth', 0);
     Alpine.store('imageHeight', 0);
     Alpine.store('imageDownloadUrl', '');
     Alpine.store('originalImageUrl', '');
     Alpine.store('imageDownloadName', '');
     Alpine.store('imageError', '');
-    Alpine.store('imageStatusTitle', 'Upscaling Image with WebGPU');
-    Alpine.store('imageProgressMessage', 'Applying neural reconstruction...');
+    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details');
+    Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
     Alpine.store('imageProgress', 0);
+
+    // Audio Stores (Studio Voice Master)
+    Alpine.store('audioState', 'init');
+    Alpine.store('audioFileName', '');
+    Alpine.store('audioDuration', '');
+    Alpine.store('audioDownloadUrl', '');
+    Alpine.store('audioDownloadName', '');
+    Alpine.store('audioProgress', 0);
+    Alpine.store('audioProgressMessage', '');
 
     Alpine.start();
     document.body.style.display = "block";
@@ -105,6 +120,7 @@ async function index(): Promise<void> {
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
+    window.chooseAudioFile = chooseAudioFile;
     window.startImageUpscale = triggerInstantImageEnhance;
     window.updateImageScale = async (scale: number) => {
         Alpine.store('imageScale', scale);
@@ -118,6 +134,22 @@ async function index(): Promise<void> {
         const nextZoom = !Alpine.store('isZoomed');
         Alpine.store('isZoomed', nextZoom);
     };
+
+    window.selectVideoFamily = async (family: VideoModelFamily) => {
+        Alpine.store('videoFamily', family);
+        if (family === 'sharpen') {
+            Alpine.store('proTipMessage', 'Sharpen mode active: Restores crisp line boundaries (ideal for typography, anime, and logos).');
+        } else {
+            Alpine.store('proTipMessage', 'Detail mode active: Reconstructs realistic textures, skin pores, hair, and fabric weave.');
+        }
+        await updateLiveVideoPreview();
+    };
+
+    window.selectVideoTier = async (tier: VideoModelTier) => {
+        Alpine.store('videoTier', tier);
+        Alpine.store('engineMode', tier === 'fast' ? 'fast' : 'deep');
+        await updateLiveVideoPreview();
+    };
 }
 
 function showUnsupported(text: string): void {
@@ -125,7 +157,7 @@ function showUnsupported(text: string): void {
     Alpine.store('state', 'unsupported');
 }
 
-function switchAppMode(mode: 'video' | 'image'): void {
+function switchAppMode(mode: 'video' | 'image' | 'audio'): void {
     Alpine.store('appMode', mode);
 }
 
@@ -144,26 +176,22 @@ function calculateSmartResolutionOptions(inW: number, inH: number): ResolutionTa
     };
 
     if (shortEdge <= 540) {
-        Alpine.store('proTipMessage', 'Upscaling to 1080p recovers sharp text and sub-pixel edge definition.');
         return [
             makeRes(720, '720p HD', '2× HD', 7.5e6),
             makeRes(1080, '1080p Full HD', '3× Full HD', 11.0e6)
         ];
     } else if (shortEdge <= 800) {
-        Alpine.store('proTipMessage', '4K UHD available! Scaled safely to 2160×3840 within GPU limits.');
         return [
             makeRes(1080, '1080p Full HD', '1.5× Full HD', 11.0e6),
             makeRes(1440, '2K Quad HD', '2× Quad HD', 15.0e6),
             makeRes(2160, '4K Ultra HD', '3× 4K UHD', 22.0e6)
         ];
     } else if (shortEdge <= 1200) {
-        Alpine.store('proTipMessage', 'Full 4K Ultra HD target unlocked for your 1080p footage.');
         return [
             makeRes(1440, '2K Quad HD', '1.3× Quad HD', 15.0e6),
             makeRes(2160, '4K Ultra HD', '2× 4K UHD', 22.0e6)
         ];
     } else {
-        Alpine.store('proTipMessage', 'High-resolution source: Applying 4K sub-pixel edge synthesis.');
         return [
             makeRes(2160, '4K Ultra HD', '1.5× 4K UHD', 24.0e6)
         ];
@@ -175,7 +203,7 @@ async function chooseFile(e?: Event): Promise<void> {
         const [fileHandle] = await window.showOpenFilePicker({
             types: [{
                 description: 'Video Files',
-                accept: { 'video/mp4': ['.mp4'] }
+                accept: { 'video/mp4': ['.mp4'], 'video/webm': ['.webm'] }
             }],
             multiple: false
         });
@@ -279,14 +307,14 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         video.onseeked = async () => {
             await new Promise(r => setTimeout(r, 60));
-            await captureAndSendPreviewFrame();
+            await updateLiveVideoPreview();
         };
 
         video.currentTime = snapTimes[0];
 
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
-                await captureAndSendPreviewFrame();
+                await updateLiveVideoPreview();
             }
         }, 800);
 
@@ -294,15 +322,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             if (Alpine.store('state') === 'processing') return;
             Alpine.store('activeSnapshotTime', timeSec);
             video.currentTime = timeSec;
-        };
-
-        window.selectEngineMode = function (mode: EngineMode) {
-            Alpine.store('engineMode', mode);
-        };
-
-        window.selectVideoProfile = async function (profile: VideoProfilePreset) {
-            Alpine.store('videoProfile', profile);
-            await captureAndSendPreviewFrame();
         };
 
         window.togglePause = function () {
@@ -315,7 +334,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         };
     };
 
-    async function captureAndSendPreviewFrame() {
+    async function updateLiveVideoPreview() {
         if (Alpine.store('state') !== 'processing') {
             window.initRecording = initRecording;
 
@@ -346,7 +365,8 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         try {
             const w = video.videoWidth || 640;
             const h = video.videoHeight || 360;
-            const currentProfile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
+            const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
+            const profileParam: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
 
             const frameBitmap = await createImageBitmap(video);
 
@@ -362,7 +382,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                         upscaled,
                         original,
                         resolution: { width: w, height: h },
-                        profile: currentProfile
+                        profile: profileParam
                     }
                 }, [frameBitmap, upscaled, original]);
             } else {
@@ -370,7 +390,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                     cmd: "updatePreview",
                     data: {
                         bitmap: frameBitmap,
-                        profile: currentProfile
+                        profile: profileParam
                     }
                 }, [frameBitmap]);
             }
@@ -410,7 +430,8 @@ async function initRecording(): Promise<void> {
     const selectedIdx = (Alpine.store('selectedOptionIndex') as number) || 0;
     const activeOpt = options[selectedIdx] || options[0];
     const engineMode = (Alpine.store('engineMode') as EngineMode) || 'deep';
-    const profile = (Alpine.store('videoProfile') as VideoProfilePreset) || 'photo';
+    const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
+    const profile: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
 
     const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
     let outputHandle: FileSystemFileHandle | undefined;
@@ -438,7 +459,7 @@ async function initRecording(): Promise<void> {
 }
 
 // ============================================================================
-// IMAGE UPSCALER (INSTANT NATIVE BEFORE/AFTER SPLIT SLIDER + REAL-ESRGAN ML)
+// IMAGE UPSCALER (ESRGAN DEEP ML ENGINE)
 // ============================================================================
 
 async function chooseImageFile(e?: Event): Promise<void> {
@@ -491,7 +512,7 @@ async function setupImageFile(file: File): Promise<void> {
         Alpine.store('imageWidth', activeImageBitmap.width);
         Alpine.store('imageHeight', activeImageBitmap.height);
         Alpine.store('imageScale', 4);
-        Alpine.store('imagePreset', 'ultra'); // Default to Ultra AI Real-ESRGAN!
+        Alpine.store('imagePreset', 'ultra');
 
         await triggerInstantImageEnhance();
     } catch {
@@ -504,9 +525,9 @@ async function triggerInstantImageEnhance(): Promise<void> {
     if (!activeImageBitmap) return;
 
     Alpine.store('imageState', 'processing');
-    Alpine.store('imageStatusTitle', 'Initializing Real-ESRGAN Neural Core');
-    Alpine.store('imageProgressMessage', 'Preparing WebGPU memory buffers...');
-    Alpine.store('imageProgress', 5);
+    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details');
+    Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
+    Alpine.store('imageProgress', 15);
 
     try {
         const scale = (Alpine.store('imageScale') as 2 | 4) || 4;
@@ -517,13 +538,7 @@ async function triggerInstantImageEnhance(): Promise<void> {
             preset,
             onProgress: (stage, progress, details) => {
                 Alpine.store('imageProgress', progress);
-                if (stage === 'downloading') {
-                    Alpine.store('imageStatusTitle', 'Downloading Neural Model (Cached in Browser)');
-                    Alpine.store('imageProgressMessage', details || `Fetching weights: ${progress}%`);
-                } else {
-                    Alpine.store('imageStatusTitle', 'Synthesizing Sub-Pixel Details (WebGPU)');
-                    Alpine.store('imageProgressMessage', details || `Tiled ML Inference: ${progress}%`);
-                }
+                if (details) Alpine.store('imageProgressMessage', details);
             }
         });
 
@@ -535,8 +550,61 @@ async function triggerInstantImageEnhance(): Promise<void> {
         Alpine.store('imageDownloadUrl', currentUpscaledBlobUrl);
         Alpine.store('imageState', 'preview');
     } catch (err: any) {
-        Alpine.store('imageError', err?.message || 'WebGPU Image Upscale failed.');
+        Alpine.store('imageError', err?.message || 'ESRGAN Image Upscale failed.');
         Alpine.store('imageState', 'error');
+    }
+}
+
+// ============================================================================
+// 🎙️ AI AUDIO / VOICE ENHANCER
+// ============================================================================
+
+async function chooseAudioFile(e?: Event): Promise<void> {
+    try {
+        if (window.showOpenFilePicker) {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Audio Files',
+                    accept: { 'audio/*': ['.mp3', '.wav', '.m4a', '.aac'] }
+                }],
+                multiple: false
+            });
+            const file = await fileHandle.getFile();
+            await setupAudioFile(file);
+        } else {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'audio/mp3, audio/wav, audio/m4a, audio/aac';
+            input.onchange = async () => {
+                if (input.files && input.files[0]) {
+                    await setupAudioFile(input.files[0]);
+                }
+            };
+            input.click();
+        }
+    } catch {
+        console.log('Audio selection cancelled');
+    }
+}
+
+async function setupAudioFile(file: File): Promise<void> {
+    Alpine.store('audioState', 'processing');
+    Alpine.store('audioFileName', file.name);
+    Alpine.store('audioDownloadName', file.name.split('.')[0] + "-TJP-STUDIO-MASTER.wav");
+
+    try {
+        const result = await enhanceAudioFile(file, {}, (progress, stage) => {
+            Alpine.store('audioProgress', progress);
+            Alpine.store('audioProgressMessage', stage);
+        });
+
+        const downloadUrl = URL.createObjectURL(result.blob);
+        Alpine.store('audioDownloadUrl', downloadUrl);
+        Alpine.store('audioDuration', formatTime(result.durationSec));
+        Alpine.store('audioState', 'complete');
+    } catch (err: any) {
+        alert(err?.message || 'Audio enhancement failed');
+        Alpine.store('audioState', 'init');
     }
 }
 

@@ -1,29 +1,119 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 
 <head>
     <meta charset="UTF-8">
     <meta content="TJP AI Studio - Professional AI Video Enhancer, Image Upscaler & Studio Audio Enhancer running locally on WebGPU." name="description">
     <meta content="TJP AI Studio" property="og:title">
     <meta content="Upscale videos, reconstruct images, and enhance voice tracks directly in your browser. 100% private, zero upload queues." property="og:description">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="icon" href="logo.svg">
     <title>TJP Video, Image & Audio AI Studio — Professional In-Browser Suite</title>
 
+    <script src="https://cdn.tailwindcss.com"></script>
+
     <style>
+        *, ::before, ::after { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+            background-color: #f5f6f9;
+            color: #111827;
+            overflow-x: hidden;
+        }
+
+        .font-mono { font-family: 'DM Mono', monospace; }
+
+        /* TJP Accent Palette (Refined Studio Indigo) */
+        :root {
+            --acc: #5145cd;
+            --acc-hover: #4338b8;
+            --acc-soft: rgba(81, 69, 205, 0.08);
+            --acc-line: rgba(81, 69, 205, 0.35);
+        }
+
+        .btn-tjp-primary {
+            background-color: var(--acc);
+            color: #ffffff;
+            font-weight: 700;
+            border-radius: 0.625rem;
+            padding: 0.625rem 1.375rem;
+            transition: all 0.15s ease;
+            box-shadow: 0 4px 14px 0 rgba(81, 69, 205, 0.35);
+        }
+        .btn-tjp-primary:hover {
+            background-color: var(--acc-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px 0 rgba(81, 69, 205, 0.45);
+        }
+
+        .btn-tjp-outline {
+            color: var(--acc);
+            border: 1px solid var(--acc-line);
+            background-color: transparent;
+            font-weight: 600;
+            border-radius: 0.625rem;
+            padding: 0.5rem 1.25rem;
+            transition: all 0.15s ease;
+        }
+        .btn-tjp-outline:hover {
+            background-color: var(--acc-soft);
+        }
+
+        .tjp-card {
+            background: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        /* Segmented Output Controls */
+        .output-box {
+            background: #eff1f4;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 14px;
+            padding: 8px 14px;
+        }
+        .output-seg {
+            display: inline-flex;
+            gap: 2px;
+            background: #f5f6f9;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 10px;
+            padding: 3px;
+        }
+        .output-seg-btn {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 13px;
+            color: #5c626d;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .output-seg-btn.active {
+            background: var(--acc);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(81, 69, 205, 0.3);
+        }
+
+        /* Patch Preview Split Viewport */
         .split-slider-box {
             position: relative;
-            background: #090d16;
+            background: #000000;
             border-radius: 1rem;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 420px;
+            min-height: 400px;
             width: 100%;
         }
         .video-canvas-layer {
@@ -40,7 +130,7 @@
             bottom: 0;
             width: 2px;
             background: #ffffff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
             pointer-events: none;
             z-index: 30;
         }
@@ -62,6 +152,22 @@
             cursor: ew-resize;
             pointer-events: all;
             user-select: none;
+        }
+
+        /* Inline Tooltip */
+        .tooltip-trigger {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            line-height: 15px;
+            text-align: center;
+            border-radius: 50%;
+            background: #d1d5db;
+            color: #374151;
+            font-size: 10px;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 5px;
         }
     </style>
 </head>
@@ -102,43 +208,57 @@
 @mousemove="updateSlider($event); updateImgSlider($event);" 
 @touchmove="updateSlider($event); updateImgSlider($event);"
 style="display: none;" 
-class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#f8fafc] text-[#0f172a]">
+class="min-h-screen flex flex-col justify-between antialiased">
 
 <div id="hidden-video-host" style="position: absolute; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; overflow: hidden; z-index: -100;"></div>
 
-<div class="w-full flex-grow flex flex-col justify-start py-6 sm:py-8">
-    
-    <!-- Top Header -->
-    <header class="w-full text-center px-4 mb-4">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-50 text-[#fd5d5d] text-xs font-bold tracking-wide uppercase mb-2 border border-red-100">
-            <span class="w-2 h-2 rounded-full bg-[#fd5d5d] animate-pulse"></span>
+<!-- Main Top Header -->
+<header class="w-full bg-white/80 backdrop-blur-md border-b border-gray-200/60 sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+        <a href="/" class="flex items-center gap-2.5 no-underline">
+            <svg width="26" height="26" viewBox="0 0 100 100" fill="none">
+                <path d="M50 0 C10 0 0 10 0 50 C0 90 10 100 50 100 C90 100 100 90 100 50 C100 10 90 0 50 0 Z" fill="#5145cd" />
+                <rect x="26" y="26" width="48" height="48" rx="9" fill="#fff" opacity="0.3" />
+                <rect x="26" y="42" width="32" height="32" rx="7" fill="#fff" opacity="0.6" />
+                <rect x="26" y="57" width="17" height="17" rx="4.5" fill="#fff" />
+            </svg>
+            <span class="font-extrabold text-base tracking-tight text-gray-900">TJP <span style="color: #5145cd;">Studio</span></span>
+        </a>
+
+        <!-- Privacy Status Badge -->
+        <div class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100/80 text-[#5145cd] text-xs font-bold uppercase tracking-wider">
+            <span class="w-2 h-2 rounded-full bg-[#5145cd] animate-pulse"></span>
             100% Private • Local GPU Processing
         </div>
-        <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
-            TJP <span style="color: #fd5d5d;">AI Studio</span>
-        </h1>
-        <p class="text-gray-500 text-xs sm:text-sm mt-1 max-w-xl mx-auto">
-            Professional in-browser video super-resolution, ESRGAN image enhancement, and studio voice clarity. Zero cloud queues, runs locally on your graphics card.
-        </p>
 
-        <!-- Pro Status Pill -->
-        <div class="mt-2.5 flex justify-center items-center gap-2 text-xs">
+        <div>
             <template x-if="isPro">
-                <span class="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-full flex items-center gap-1">
-                    ✓ Pro Membership Active
-                </span>
+                <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full">✓ Pro Active</span>
             </template>
             <template x-if="!isPro">
-                <button type="button" @click="licenseModal = true" class="text-gray-500 hover:text-[#fd5d5d] font-semibold underline transition-colors">
-                    Have a Pro License Key? Click here
+                <button type="button" @click="licenseModal = true" class="text-xs text-gray-500 hover:text-[#5145cd] font-semibold underline">
+                    Pro License?
                 </button>
             </template>
         </div>
-    </header>
+    </div>
+</header>
 
-    <!-- Top 3-Mode Switcher -->
+<div class="w-full flex-grow flex flex-col justify-start py-6 sm:py-8">
+    
+    <!-- Hero Title -->
+    <div class="text-center px-4 mb-4">
+        <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-gray-900">
+            Professional AI Super-Resolution
+        </h1>
+        <p class="text-gray-500 text-xs sm:text-sm mt-1.5 max-w-xl mx-auto">
+            Upscale videos, reconstruct photo details, and master speech audio locally on your graphics card. Zero upload queues, 100% private.
+        </p>
+    </div>
+
+    <!-- Mode Switcher (Video vs Image vs Audio) -->
     <div class="flex justify-center mb-6 px-4">
-        <div class="bg-gray-200 p-1 rounded-2xl inline-flex gap-1 shadow-inner">
+        <div class="bg-gray-200/80 p-1 rounded-2xl inline-flex gap-1 shadow-inner">
             <button type="button" 
                     @click="$store.appMode = 'video'; switchAppMode('video')"
                     :class="$store.appMode === 'video' ? 'bg-white shadow text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-900 font-medium'"
@@ -164,13 +284,13 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
     <main class="w-full max-w-5xl px-4 mx-auto">
 
         <!-- ================================================================= -->
-        <!-- TAB 1: VIDEO ENHANCER                                             -->
+        <!-- TAB 1: VIDEO ENHANCER (SHARPEN vs DETAIL NEURAL FAMILIES)        -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'video'">
             
-            <div id="unsupported-panel" class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'unsupported'">
+            <div id="unsupported-panel" class="tjp-card p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'unsupported'">
                 <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 text-xl font-bold">⚠️</div>
-                <h3 class="text-xl font-bold text-gray-900 mb-2">WebGPU Acceleration Required</h3>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">WebGPU Hardware Acceleration Required</h3>
                 <p class="text-gray-600 text-sm mb-4">
                     Your browser does not support <span x-text="$store.component" class="font-mono bg-red-50 text-red-600 px-2 py-0.5 rounded font-bold"></span>.
                 </p>
@@ -179,38 +299,39 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 </p>
             </div>
 
-            <div id="file-load-panel" class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.state === 'init'">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
-                    <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <!-- Upload Panel -->
+            <div id="file-load-panel" class="tjp-card p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.state === 'init'">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 flex items-center justify-center mb-6 border border-indigo-100">
+                    <svg class="w-8 h-8 text-[#5145cd]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Select a video to enhance</h2>
-                <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
+                <p class="text-gray-500 text-sm mb-8 max-w-md mx-auto">
                     Supports 360p, 480p, 720p, and 1080p clips up to 4K UHD. Runs locally on your GPU with total privacy.
                 </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseFile(this)">
-                    Select Video File
+                <button type="button" class="btn-tjp-primary w-full sm:w-auto px-8 py-3.5 text-base" onclick="chooseFile(this)">
+                    Choose Video File
                 </button>
             </div>
 
-            <div id="loading-panel" class="tjp-card rounded-2xl p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.state === 'loading'">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800">Calibrating Pipelines</h3>
-                <p class="text-gray-400 text-sm mt-1">Decoding frames and setting up WebGPU neural shaders...</p>
+            <div id="loading-panel" class="tjp-card p-12 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.state === 'loading'">
+                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#5145cd] mb-4"></div>
+                <h3 class="text-lg font-bold text-gray-800">Calibrating WebGPU Pipelines</h3>
+                <p class="text-gray-400 text-sm mt-1">Decoding frames and setting up neural shaders...</p>
             </div>
 
-            <div id="error-panel" class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'error'">
+            <div id="error-panel" class="tjp-card p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.state === 'error'">
                 <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
                 <h3 class="text-lg font-bold text-gray-900 mb-2">Processing Notification</h3>
                 <div class="bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm p-4 rounded-xl mb-5 text-left leading-relaxed" x-text="$store.error"></div>
-                <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl text-sm font-semibold" onclick="location.reload();">
+                <button type="button" class="btn-tjp-outline px-6 py-2.5 text-sm" onclick="location.reload();">
                     Try Another Video
                 </button>
             </div>
 
             <!-- 2-COLUMN STUDIO WORKSPACE -->
-            <div id="start-panel" class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl" x-show="$store.state === 'preview' || $store.state === 'processing' || $store.state === 'complete' || $store.state === 'paused'">
+            <div id="start-panel" class="tjp-card p-5 sm:p-6 shadow-xl" x-show="$store.state === 'preview' || $store.state === 'processing' || $store.state === 'complete' || $store.state === 'paused'">
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
@@ -223,7 +344,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
                                 <button type="button" 
                                         @click="toggleZoomMode()"
-                                        :class="$store.isZoomed ? 'bg-[#fd5d5d] text-white border-[#fd5d5d]' : 'bg-black/70 text-white border-white/20 hover:bg-black'"
+                                        :class="$store.isZoomed ? 'bg-[#5145cd] text-white border-[#5145cd]' : 'bg-black/70 text-white border-white/20 hover:bg-black'"
                                         class="px-2.5 py-1 rounded-lg text-xs font-bold border backdrop-blur-md transition-all flex items-center gap-1.5 shadow-md">
                                     <span>🔍</span> <span x-text="$store.isZoomed ? '2× Zoom ON' : '1× Fit'"></span>
                                 </button>
@@ -237,38 +358,38 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                      :class="$store.isZoomed ? 'scale-[2.0] cursor-grab' : 'scale-100 cursor-ew-resize'"
                                      class="relative overflow-hidden user-select-none transition-transform duration-200 ease-out origin-center">
                                     
-                                    <!-- LEFT LAYER: RAW ORIGINAL -->
+                                    <!-- LEFT: ORIGINAL RAW FRAME -->
                                     <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
                                     
-                                    <!-- RIGHT LAYER: NEURAL ENHANCED -->
+                                    <!-- RIGHT: ENHANCED NEURAL PASS -->
                                     <div class="video-canvas-layer pointer-events-none overflow-hidden" 
                                          :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
                                         <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
                                     </div>
 
-                                    <!-- Center Split Divider Line -->
+                                    <!-- Divider Line & Knob -->
                                     <div class="slider-bar-rule" :style="'left: ' + sliderPos + '%'">
                                         <div class="slider-handle-center font-bold">
                                             <span>◀▶</span>
                                         </div>
                                     </div>
 
-                                    <!-- Header Badges -->
+                                    <!-- Badges -->
                                     <div class="absolute top-3 left-3 z-30 pointer-events-none">
                                         <span class="bg-black/80 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                             Original (Raw)
                                         </span>
                                     </div>
                                     <div class="absolute top-3 left-28 z-30 pointer-events-none">
-                                        <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
-                                            Enhanced (AI)
+                                        <span class="bg-[#5145cd]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                            AI Enhanced
                                         </span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Timeline Scene Snapshots -->
+                        <!-- Timeline Snapshots -->
                         <div class="w-full mt-3.5">
                             <div class="flex items-center justify-between text-[11px] text-gray-400 font-semibold mb-1.5 px-1">
                                 <span>Scene Timeline Snapshots</span>
@@ -277,7 +398,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             <div class="flex gap-2 overflow-x-auto pb-1">
                                 <template x-for="(snap, idx) in $store.timelineSnapshots" :key="idx">
                                     <button type="button" @click="seekToTimestamp(snap.time)"
-                                            :class="$store.activeSnapshotTime === snap.time ? 'border-[#fd5d5d] bg-red-50 text-[#fd5d5d]' : 'border-gray-200 bg-gray-100 text-gray-700'"
+                                            :class="$store.activeSnapshotTime === snap.time ? 'border-[#5145cd] bg-indigo-50 text-[#5145cd]' : 'border-gray-200 bg-gray-100 text-gray-700'"
                                             class="flex-1 py-1.5 px-2 border rounded-lg text-xs font-mono font-bold transition-all text-center">
                                         <span x-text="snap.label"></span>
                                     </button>
@@ -290,102 +411,85 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                     <!-- RIGHT COLUMN: STUDIO CONTROL DECK -->
                     <div class="lg:col-span-5 flex flex-col justify-between h-full space-y-4">
                         
-                        <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                            <div class="flex items-center justify-between mb-2">
-                                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Resolution Mapping</span>
-                                <span class="bg-red-50 text-[#fd5d5d] px-2 py-0.5 rounded font-mono font-bold text-xs" x-text="$store.size"></span>
+                        <!-- File Info Box -->
+                        <div class="p-3.5 bg-gray-50 rounded-2xl border border-gray-100">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Resolution Mapping</span>
+                                <span class="bg-indigo-50 text-[#5145cd] px-2 py-0.5 rounded font-mono font-bold text-xs" x-text="$store.size"></span>
                             </div>
                             <div class="text-xs text-gray-800 font-semibold truncate mb-1" x-text="$store.filename"></div>
                             <div class="flex items-center gap-2 text-xs font-mono font-bold">
                                 <span class="text-gray-500" x-text="$store.width + '×' + $store.height"></span>
                                 <span class="text-gray-400">→</span>
                                 <span class="text-gray-900" x-text="$store.availableOptions[$store.selectedOptionIndex]?.targetWidth + '×' + $store.availableOptions[$store.selectedOptionIndex]?.targetHeight"></span>
-                                <span class="text-[#fd5d5d] uppercase text-[10px]" x-text="'(' + ($store.availableOptions[$store.selectedOptionIndex]?.label || '') + ')'"></span>
+                                <span class="text-[#5145cd] uppercase text-[10px]" x-text="'(' + ($store.availableOptions[$store.selectedOptionIndex]?.label || '') + ')'"></span>
                             </div>
                         </div>
 
-                        <!-- Video Enhancement Profile Selection -->
-                        <div>
-                            <label class="text-xs font-bold text-gray-800 block mb-2">Enhancement Profile:</label>
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-photo" value="photo" 
-                                           :checked="$store.videoProfile === 'photo'"
-                                           @change="selectVideoProfile('photo')">
-                                    <label for="vp-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-portrait" value="portrait" 
-                                           :checked="$store.videoProfile === 'portrait'"
-                                           @change="selectVideoProfile('portrait')">
-                                    <label for="vp-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-anime" value="anime" 
-                                           :checked="$store.videoProfile === 'anime'"
-                                           @change="selectVideoProfile('anime')">
-                                    <label for="vp-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="video-profile" id="vp-text" value="text" 
-                                           :checked="$store.videoProfile === 'text'"
-                                           @change="selectVideoProfile('text')">
-                                    <label for="vp-text" class="block text-center text-xs py-2 cursor-pointer border-[#fd5d5d] text-[#fd5d5d]">📝 Text & Logo</label>
+                        <!-- 1. AI MODEL FAMILY (Sharpen vs Detail - Match free.upscaler.video) -->
+                        <div class="output-box">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center">
+                                    AI Model
+                                    <span class="tooltip-trigger" title="Sharpen restores crisp edges (anime, text, logos). Detail reconstructs fine natural textures (skin, hair, foliage).">?</span>
+                                </span>
+                                <div class="output-seg">
+                                    <button type="button" 
+                                            class="output-seg-btn"
+                                            :class="{ 'active': $store.videoFamily === 'sharpen' }"
+                                            @click="selectVideoFamily('sharpen')">Sharpen</button>
+                                    <button type="button" 
+                                            class="output-seg-btn"
+                                            :class="{ 'active': $store.videoFamily === 'detail' }"
+                                            @click="selectVideoFamily('detail')">Detail</button>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Processing Engine Switcher -->
-                        <div>
-                            <div class="flex justify-between items-center mb-2">
-                                <span class="text-xs font-bold text-gray-800">Processing Engine:</span>
-                                <span class="text-[10px] text-gray-400 font-mono" x-text="$store.engineMode === 'deep' ? 'Deep AI' : 'Fast Turbo'"></span>
-                            </div>
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="engine-mode" id="eng-fast" value="fast" :checked="$store.engineMode === 'fast'" @change="selectEngineMode('fast')">
-                                    <label for="eng-fast" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
-                                        <span>⚡ Fast Turbo</span>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">~15–20 FPS (Fast)</span>
-                                    </label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="engine-mode" id="eng-deep" value="deep" :checked="$store.engineMode === 'deep'" @change="selectEngineMode('deep')">
-                                    <label for="eng-deep" class="py-2.5 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all border-[#fd5d5d] text-[#fd5d5d]">
-                                        <span>🧠 Deep AI</span>
-                                        <span class="text-[10px] opacity-75 font-normal block mt-0.5">Sub-Pixel Detail</span>
-                                    </label>
+                            <!-- 2. MODEL SIZE TIERS (Fast vs Balanced vs Quality) -->
+                            <div class="flex items-center justify-between pt-2 border-t border-gray-200/60">
+                                <span class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Quality Tier</span>
+                                <div class="output-seg">
+                                    <button type="button" class="output-seg-btn"
+                                            :class="{ 'active': $store.videoTier === 'fast' }"
+                                            @click="selectVideoTier('fast')">Fast</button>
+                                    <button type="button" class="output-seg-btn"
+                                            :class="{ 'active': $store.videoTier === 'balanced' }"
+                                            @click="selectVideoTier('balanced')">Balanced</button>
+                                    <button type="button" class="output-seg-btn"
+                                            :class="{ 'active': $store.videoTier === 'quality' }"
+                                            @click="selectVideoTier('quality')">Quality</button>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Target Resolution Selection Pills -->
                         <div>
-                            <span class="text-xs font-bold text-gray-800 block mb-2">Target Resolution:</span>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 network-option">
+                            <span class="text-xs font-bold text-gray-800 block mb-2">Target Output Resolution:</span>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 <template x-for="(opt, idx) in $store.availableOptions" :key="idx">
-                                    <div>
-                                        <input type="radio" name="res-target" :id="'opt-' + idx" :value="idx" :checked="$store.selectedOptionIndex === idx" @change="selectTargetResolution(idx)">
-                                        <label :for="'opt-' + idx" class="py-2 px-2 text-xs font-bold rounded-xl cursor-pointer block text-center transition-all">
-                                            <span x-text="opt.label" class="block"></span>
-                                            <span class="text-[10px] opacity-75 font-normal block" x-text="opt.tag"></span>
-                                        </label>
-                                    </div>
+                                    <button type="button" 
+                                            @click="selectTargetResolution(idx)"
+                                            :class="$store.selectedOptionIndex === idx ? 'bg-[#5145cd] text-white shadow-md' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+                                            class="py-2 px-2 text-xs font-bold rounded-xl transition-all text-center border-0">
+                                        <span x-text="opt.label" class="block"></span>
+                                        <span class="text-[10px] opacity-75 font-normal block" x-text="opt.tag"></span>
+                                    </button>
                                 </template>
                             </div>
                         </div>
 
-                        <div x-show="$store.proTipMessage" class="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-snug">
+                        <!-- Tip Banner -->
+                        <div x-show="$store.proTipMessage" class="p-3 bg-indigo-50 border border-indigo-200/60 rounded-xl text-[11px] text-indigo-900 leading-snug">
                             💡 <strong>Tip:</strong> <span x-text="$store.proTipMessage"></span>
                         </div>
 
                         <!-- Action Buttons -->
                         <div class="pt-2">
                             <div class="flex flex-col gap-2.5" x-show="$store.state === 'preview'">
-                                <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="initRecording()">
+                                <button type="button" class="btn-tjp-primary w-full py-3.5 text-base shadow-lg" onclick="initRecording()">
                                     Start Upscaling Video
                                 </button>
-                                <button type="button" class="btn tjp-btn-secondary w-full py-2 rounded-xl font-bold text-xs" onclick="location.reload();">
+                                <button type="button" class="btn-tjp-outline w-full py-2 text-xs" onclick="location.reload();">
                                     Change Video File
                                 </button>
                             </div>
@@ -393,20 +497,17 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             <!-- Processing Progress Bar -->
                             <div x-show="$store.state === 'processing' || $store.state === 'paused'" class="space-y-3">
                                 <div class="flex justify-between items-center text-xs font-semibold text-gray-700">
-                                    <span>Processing Frames...</span>
-                                    <span class="font-mono text-[#fd5d5d]" x-text="$store.eta"></span>
+                                    <span>Processing Frames with WebGPU...</span>
+                                    <span class="font-mono text-[#5145cd]" x-text="$store.eta"></span>
                                 </div>
                                 <div class="w-full bg-gray-100 h-3 rounded-full overflow-hidden p-0.5 border border-gray-200">
-                                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" x-bind:style="{ width: $store.progress + '%' }"></div>
+                                    <div class="h-full rounded-full transition-all duration-300 bg-[#5145cd]" x-bind:style="{ width: $store.progress + '%' }"></div>
                                 </div>
                                 <div class="flex justify-between items-center pt-1">
                                     <span class="text-xs text-gray-400 font-mono" x-text="$store.progress + '% complete'"></span>
                                     <div class="flex gap-2">
-                                        <button type="button" class="btn tjp-btn-secondary px-3 py-1 rounded-lg text-xs font-bold" onclick="togglePause()" x-text="$store.state === 'paused' ? 'Resume' : 'Pause'">
-                                        </button>
-                                        <button type="button" class="btn btn-outline-danger px-3 py-1 rounded-lg text-xs font-bold" onclick="location.reload();">
-                                            Cancel
-                                        </button>
+                                        <button type="button" class="btn-tjp-outline px-3 py-1 rounded-lg text-xs font-bold" onclick="togglePause()" x-text="$store.state === 'paused' ? 'Resume' : 'Pause'"></button>
+                                        <button type="button" class="btn-tjp-outline text-red-600 border-red-200 hover:bg-red-50 px-3 py-1 rounded-lg text-xs font-bold" onclick="location.reload();">Cancel</button>
                                     </div>
                                 </div>
                             </div>
@@ -419,39 +520,15 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 <!-- Complete State: Audit Card & Download -->
                 <div id="download-link" class="mt-8 pt-6 border-t border-gray-100 flex flex-col items-center text-center" x-show="$store.state === 'complete'">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mb-2">✓</div>
-                    <h4 class="text-xl font-bold text-gray-900 mb-1">Restoration & Super-Resolution Complete</h4>
+                    <h4 class="text-xl font-bold text-gray-900 mb-1">Super-Resolution Complete</h4>
                     <p class="text-gray-400 text-xs mb-4">Exported with dedicated WebGPU pipelines and 1:1 frame integrity.</p>
-                    
-                    <div x-show="$store.report" class="w-full max-w-md bg-white border border-slate-200 rounded-2xl p-4 my-2 text-left shadow-sm">
-                        <div class="flex justify-between items-center pb-2 border-b border-slate-100">
-                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Signal & Frame Audit</span>
-                            <span class="text-xs font-extrabold px-2 py-0.5 rounded font-mono bg-emerald-100 text-emerald-700"
-                                  x-text="$store.report?.status === 'PASSED' ? '✓ 100% 1:1 PRESERVED' : 'VALIDATION FAILED'">
-                            </span>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 py-3 font-mono">
-                            <div>Resolution: <strong class="text-slate-900" x-text="$store.report?.resolution"></strong></div>
-                            <div>Output Bitrate: <strong class="text-slate-900" x-text="$store.report?.bitrateMbps + ' Mbps'"></strong></div>
-                            <div>Frame Count: <strong class="text-slate-900" x-text="$store.report?.outputFrames + ' / ' + $store.report?.inputFrames"></strong></div>
-                            <div>A/V Sync Delta: <strong class="text-emerald-600" x-text="'±' + $store.report?.avSyncDeltaMs + 'ms'"></strong></div>
-                        </div>
-
-                        <div class="text-[11px] text-slate-500 border-t border-slate-100 pt-2 space-y-1">
-                            <template x-for="stage in $store.report?.stagesExecuted">
-                                <div class="flex items-center gap-1.5">
-                                    <span class="text-emerald-500 font-bold">✓</span> <span x-text="stage"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
 
                     <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto mt-4">
-                        <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl font-bold text-sm" onclick="location.reload();">
+                        <button type="button" class="btn-tjp-outline px-6 py-2.5 font-bold text-sm" onclick="location.reload();">
                             Upscale Another Video
                         </button>
                         <a x-bind:href="$store.download_url" x-bind:download="$store.download_name" class="w-full sm:w-auto" x-show="$store.download_url">
-                            <button type="button" class="btn tjp-btn-primary px-8 py-2.5 rounded-xl font-bold text-sm w-full sm:w-auto">
+                            <button type="button" class="btn-tjp-primary px-8 py-2.5 font-bold text-sm w-full sm:w-auto">
                                 Download Enhanced Video
                             </button>
                         </a>
@@ -463,47 +540,47 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
         </div>
 
         <!-- ================================================================= -->
-        <!-- TAB 2: IMAGE UPSCALER                                             -->
+        <!-- TAB 2: IMAGE UPSCALER (ESRGAN DEEP ML ENGINE)                     -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'image'">
             
-            <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
-                    <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="tjp-card p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.imageState === 'init'">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 flex items-center justify-center mb-6 border border-indigo-100">
+                    <svg class="w-8 h-8 text-[#5145cd]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Select an image to upscale</h2>
-                <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
-                    Reconstruct portraits, anime art, and textures with deep ESRGAN machine learning directly on your GPU.
+                <p class="text-gray-500 text-sm mb-8 max-w-md mx-auto">
+                    Reconstruct portraits, anime art, and fine textures with ESRGAN machine learning directly on your GPU.
                 </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseImageFile(this)">
-                    Select Image File
+                <button type="button" class="btn-tjp-primary w-full sm:w-auto px-8 py-3.5 text-base shadow-lg" onclick="chooseImageFile(this)">
+                    Choose Image File
                 </button>
             </div>
 
-            <div class="tjp-card rounded-2xl p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
+            <div class="tjp-card p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.imageState === 'processing'">
+                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#5145cd] mb-4"></div>
                 <h3 class="text-lg font-bold text-gray-800" x-text="$store.imageStatusTitle || 'Synthesizing Sub-Pixel Details'"></h3>
-                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.imageProgressMessage || 'Applying neural reconstruction...'"></p>
+                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.imageProgressMessage || 'Applying ESRGAN neural reconstruction...'"></p>
 
                 <div class="w-full max-w-xs bg-gray-100 h-2.5 rounded-full overflow-hidden mt-4 border border-gray-200">
-                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" :style="'width: ' + ($store.imageProgress || 15) + '%'"></div>
+                    <div class="h-full rounded-full transition-all duration-300 bg-[#5145cd]" :style="'width: ' + ($store.imageProgress || 15) + '%'"></div>
                 </div>
                 <span class="text-[10px] text-gray-400 mt-1.5 font-mono" x-text="($store.imageProgress || 0) + '%'"></span>
             </div>
 
-            <div class="tjp-card rounded-2xl p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.imageState === 'error'">
+            <div class="tjp-card p-6 sm:p-8 text-center max-w-xl mx-auto" x-show="$store.imageState === 'error'">
                 <div class="w-12 h-12 mx-auto rounded-full bg-red-100 flex items-center justify-center text-red-600 mb-4 font-bold text-lg">✕</div>
                 <h3 class="text-lg font-bold text-gray-900 mb-2">Image Processing Error</h3>
                 <div class="bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm p-4 rounded-xl mb-5 text-left leading-relaxed" x-text="$store.imageError"></div>
-                <button type="button" class="btn tjp-btn-secondary px-6 py-2.5 rounded-xl text-sm font-semibold" @click="$store.imageState = 'init'">
+                <button type="button" class="btn-tjp-outline px-6 py-2.5 text-sm font-semibold" @click="$store.imageState = 'init'">
                     Try Another Image
                 </button>
             </div>
 
             <!-- Full Image Studio Workspace -->
-            <div class="tjp-card rounded-3xl p-5 sm:p-6 shadow-xl max-w-5xl mx-auto" x-show="$store.imageState === 'preview'">
+            <div class="tjp-card p-5 sm:p-6 shadow-xl max-w-5xl mx-auto" x-show="$store.imageState === 'preview'">
                 
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
@@ -541,7 +618,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                     </span>
                                 </div>
                                 <div class="absolute top-3 right-3 z-30 pointer-events-none">
-                                    <span class="bg-[#fd5d5d]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
+                                    <span class="bg-[#5145cd]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                         AI Enhanced
                                     </span>
                                 </div>
@@ -559,7 +636,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 <span class="text-gray-500" x-text="$store.imageWidth + '×' + $store.imageHeight"></span>
                                 <span class="text-gray-400">→</span>
                                 <span class="text-gray-900" x-text="($store.imageWidth * $store.imageScale) + '×' + ($store.imageHeight * $store.imageScale)"></span>
-                                <span class="text-[#fd5d5d] uppercase text-[10px]" x-text="'(' + $store.imageScale + '× Scale)'"></span>
+                                <span class="text-[#5145cd] uppercase text-[10px]" x-text="'(' + $store.imageScale + '× Scale)'"></span>
                             </div>
                         </div>
 
@@ -569,38 +646,26 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                             <div class="mb-2">
                                 <button type="button" 
                                         @click="updateImagePreset('ultra')"
-                                        :class="$store.imagePreset === 'ultra' ? 'bg-[#fd5d5d] text-white shadow-md border-[#fd5d5d]' : 'bg-red-50 text-[#fd5d5d] border-red-200 hover:bg-red-100'"
-                                        class="w-full py-2.5 px-3 rounded-xl border font-bold text-xs flex items-center justify-center gap-2 transition-all">
+                                        :class="$store.imagePreset === 'ultra' ? 'bg-[#5145cd] text-white shadow-md' : 'bg-indigo-50 text-[#5145cd] border border-indigo-200 hover:bg-indigo-100'"
+                                        class="w-full py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all">
                                     <span>✨ Ultra AI (ESRGAN Deep ML)</span>
-                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full" :class="$store.imagePreset === 'ultra' ? 'bg-white/20' : 'bg-[#fd5d5d]/10'">Active</span>
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full" :class="$store.imagePreset === 'ultra' ? 'bg-white/20' : 'bg-[#5145cd]/10'">Active</span>
                                 </button>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-photo" value="photo" 
-                                           :checked="$store.imagePreset === 'photo'"
-                                           @change="updateImagePreset('photo')">
-                                    <label for="p-photo" class="block text-center text-xs py-2 cursor-pointer">📷 General Photo</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-portrait" value="portrait" 
-                                           :checked="$store.imagePreset === 'portrait'"
-                                           @change="updateImagePreset('portrait')">
-                                    <label for="p-portrait" class="block text-center text-xs py-2 cursor-pointer">👤 Portrait & Face</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-anime" value="anime" 
-                                           :checked="$store.imagePreset === 'anime'"
-                                           @change="updateImagePreset('anime')">
-                                    <label for="p-anime" class="block text-center text-xs py-2 cursor-pointer">🎨 Anime / Art</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-preset" id="p-text" value="text" 
-                                           :checked="$store.imagePreset === 'text'"
-                                           @change="updateImagePreset('text')">
-                                    <label for="p-text" class="block text-center text-xs py-2 cursor-pointer">📝 Text & Logo</label>
-                                </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" @click="updateImagePreset('photo')"
+                                        :class="$store.imagePreset === 'photo' ? 'bg-[#5145cd] text-white' : 'bg-gray-100 text-gray-700'"
+                                        class="py-2 text-xs font-bold rounded-lg border-0">📷 General Photo</button>
+                                <button type="button" @click="updateImagePreset('portrait')"
+                                        :class="$store.imagePreset === 'portrait' ? 'bg-[#5145cd] text-white' : 'bg-gray-100 text-gray-700'"
+                                        class="py-2 text-xs font-bold rounded-lg border-0">👤 Portrait & Face</button>
+                                <button type="button" @click="updateImagePreset('anime')"
+                                        :class="$store.imagePreset === 'anime' ? 'bg-[#5145cd] text-white' : 'bg-gray-100 text-gray-700'"
+                                        class="py-2 text-xs font-bold rounded-lg border-0">🎨 Anime / Art</button>
+                                <button type="button" @click="updateImagePreset('text')"
+                                        :class="$store.imagePreset === 'text' ? 'bg-[#5145cd] text-white' : 'bg-gray-100 text-gray-700'"
+                                        class="py-2 text-xs font-bold rounded-lg border-0">📝 Text & Logo</button>
                             </div>
                         </div>
 
@@ -610,30 +675,20 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                                 <span class="text-xs font-bold text-gray-800 block">Resolution Multiplier:</span>
                                 <span class="text-[11px] text-gray-400">Scale factor</span>
                             </div>
-                            <div class="flex gap-2 network-option">
-                                <div>
-                                    <input type="radio" name="img-scale" id="iscale-2x" value="2" 
-                                           :checked="$store.imageScale === 2"
-                                           @change="updateImageScale(2)">
-                                    <label for="iscale-2x" class="px-3 py-1.5 text-xs font-bold text-[#fd5d5d] cursor-pointer">2× HD</label>
-                                </div>
-                                <div>
-                                    <input type="radio" name="img-scale" id="iscale-4x" value="4" 
-                                           :checked="$store.imageScale === 4"
-                                           @change="updateImageScale(4)">
-                                    <label for="iscale-4x" class="px-3 py-1.5 text-xs font-bold cursor-pointer">4× Ultra HD</label>
-                                </div>
+                            <div class="output-seg">
+                                <button type="button" class="output-seg-btn" :class="{ 'active': $store.imageScale === 2 }" @click="updateImageScale(2)">2× HD</button>
+                                <button type="button" class="output-seg-btn" :class="{ 'active': $store.imageScale === 4 }" @click="updateImageScale(4)">4× Ultra HD</button>
                             </div>
                         </div>
 
                         <!-- Action Buttons -->
                         <div class="space-y-2 pt-2">
                             <a :href="$store.imageDownloadUrl" :download="$store.imageDownloadName" class="w-full block" x-show="$store.imageDownloadUrl">
-                                <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg">
+                                <button type="button" class="btn-tjp-primary w-full py-3.5 text-base shadow-lg">
                                     Download Enhanced Image (PNG)
                                 </button>
                             </a>
-                            <button type="button" class="btn tjp-btn-secondary w-full py-2.5 rounded-xl font-bold text-xs" @click="$store.imageState = 'init'">
+                            <button type="button" class="btn-tjp-outline w-full py-2.5 text-xs font-bold" @click="$store.imageState = 'init'">
                                 Upload Another Image
                             </button>
                         </div>
@@ -651,35 +706,35 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'audio'">
             
-            <div class="tjp-card rounded-2xl p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.audioState === 'init'">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
-                    <svg class="w-8 h-8 text-[#fd5d5d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="tjp-card p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.audioState === 'init'">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 flex items-center justify-center mb-6 border border-indigo-100">
+                    <svg class="w-8 h-8 text-[#5145cd]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                     </svg>
                 </div>
                 <h2 class="text-2xl font-bold text-gray-900 mb-2">Enhance Voice & Speech Audio</h2>
-                <p class="text-gray-400 text-sm mb-8 max-w-md mx-auto">
+                <p class="text-gray-500 text-sm mb-8 max-w-md mx-auto">
                     Remove background noise, eliminate room echo, and apply broadcast vocal warmth directly in your browser. Supports MP3, WAV, M4A, and AAC.
                 </p>
-                <button type="button" class="btn tjp-btn-primary w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-base shadow-lg" onclick="chooseAudioFile(this)">
-                    Select Audio File
+                <button type="button" class="btn-tjp-primary w-full sm:w-auto px-8 py-3.5 text-base shadow-lg" onclick="chooseAudioFile(this)">
+                    Choose Audio File
                 </button>
             </div>
 
             <!-- Audio Processing Spinner -->
-            <div class="tjp-card rounded-2xl p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.audioState === 'processing'">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#fd5d5d] mb-4"></div>
+            <div class="tjp-card p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.audioState === 'processing'">
+                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#5145cd] mb-4"></div>
                 <h3 class="text-lg font-bold text-gray-800">Mastering Studio Voice Audio</h3>
                 <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.audioProgressMessage || 'Applying multi-band vocal presence...'"></p>
 
                 <div class="w-full max-w-xs bg-gray-100 h-2.5 rounded-full overflow-hidden mt-4 border border-gray-200">
-                    <div class="progress-bar-tjp h-full rounded-full transition-all duration-300" :style="'width: ' + ($store.audioProgress || 15) + '%'"></div>
+                    <div class="h-full rounded-full transition-all duration-300 bg-[#5145cd]" :style="'width: ' + ($store.audioProgress || 15) + '%'"></div>
                 </div>
                 <span class="text-[10px] text-gray-400 mt-1.5 font-mono" x-text="($store.audioProgress || 0) + '%'"></span>
             </div>
 
             <!-- Audio Complete Deck -->
-            <div class="tjp-card rounded-3xl p-6 sm:p-8 shadow-xl max-w-2xl mx-auto" x-show="$store.audioState === 'complete'">
+            <div class="tjp-card p-6 sm:p-8 shadow-xl max-w-2xl mx-auto" x-show="$store.audioState === 'complete'">
                 <div class="text-center mb-6">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mx-auto mb-2">✓</div>
                     <h3 class="text-xl font-bold text-gray-900 mb-1">Studio Vocal Enhancement Complete</h3>
@@ -689,7 +744,7 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
                 <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-6">
                     <div class="flex justify-between items-center text-xs font-bold text-gray-600 mb-3">
                         <span class="truncate max-w-xs" x-text="$store.audioFileName"></span>
-                        <span class="bg-red-50 text-[#fd5d5d] px-2 py-0.5 rounded font-mono" x-text="$store.audioDuration"></span>
+                        <span class="bg-indigo-50 text-[#5145cd] px-2 py-0.5 rounded font-mono" x-text="$store.audioDuration"></span>
                     </div>
 
                     <audio id="audio-preview-player" controls class="w-full mt-2" :src="$store.audioDownloadUrl"></audio>
@@ -697,11 +752,11 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 
                 <div class="space-y-3">
                     <a :href="$store.audioDownloadUrl" :download="$store.audioDownloadName" class="w-full block" x-show="$store.audioDownloadUrl">
-                        <button type="button" class="btn tjp-btn-primary w-full py-3.5 rounded-xl font-bold text-base shadow-lg">
+                        <button type="button" class="btn-tjp-primary w-full py-3.5 text-base shadow-lg">
                             Download Enhanced Audio (WAV Master)
                         </button>
                     </a>
-                    <button type="button" class="btn tjp-btn-secondary w-full py-2.5 rounded-xl font-bold text-xs" @click="$store.audioState = 'init'">
+                    <button type="button" class="btn-tjp-outline w-full py-2.5 text-xs font-bold" @click="$store.audioState = 'init'">
                         Enhance Another Audio File
                     </button>
                 </div>
@@ -715,23 +770,23 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
 <!-- Pro Membership Modal -->
 <div x-show="licenseModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" style="display: none;">
     <div class="bg-white rounded-2xl max-w-md w-full p-6 text-center shadow-2xl border border-gray-100">
-        <div class="w-12 h-12 rounded-full bg-red-50 text-[#fd5d5d] flex items-center justify-center mx-auto mb-3 font-bold text-xl">★</div>
+        <div class="w-12 h-12 rounded-full bg-indigo-50 text-[#5145cd] flex items-center justify-center mx-auto mb-3 font-bold text-xl">★</div>
         <h3 class="text-xl font-bold text-gray-900 mb-1">Activate Pro Membership</h3>
         <p class="text-gray-500 text-xs mb-5">
             Get unlimited 4K exports, longer duration processing, and priority model features.
         </p>
 
         <input type="text" x-model="licenseKey" placeholder="Enter license key or order ID" 
-               class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#fd5d5d] mb-4 text-center font-mono">
+               class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#5145cd] mb-4 text-center font-mono">
 
         <button type="button" @click="if (licenseKey.trim().length > 5) { isPro = true; licenseModal = false; alert('Pro membership activated!'); } else { alert('Please enter a valid license key or purchase one at tjpromotions.pro'); }"
-                class="btn tjp-btn-primary w-full py-2.5 rounded-xl font-bold text-sm mb-3">
+                class="btn-tjp-primary w-full py-2.5 text-sm mb-3">
             Activate License
         </button>
 
         <div class="text-xs text-gray-400">
             Don't have a membership yet? <br>
-            <a href="https://tjpromotions.pro" target="_blank" class="text-[#fd5d5d] font-bold hover:underline">Get Pro Access at TJ Promotions</a>
+            <a href="https://tjpromotions.pro" target="_blank" class="text-[#5145cd] font-bold hover:underline">Get Pro Access at TJ Promotions</a>
         </div>
 
         <button type="button" @click="licenseModal = false" class="mt-4 text-xs text-gray-400 hover:text-gray-600 block mx-auto">
@@ -740,16 +795,16 @@ class="font-manrope min-h-screen flex flex-col justify-between antialiased bg-[#
     </div>
 </div>
 
-<!-- Modern Minimalist Footer -->
+<!-- Footer -->
 <footer class="w-full py-6 border-t border-gray-200 bg-white text-xs text-gray-500 mt-10">
     <div class="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-center px-4 gap-3">
         <div>
             © 2026 <strong>TJP AI Studio</strong>. All rights reserved.
         </div>
         <div class="flex flex-wrap justify-center gap-4 sm:gap-6 font-medium text-gray-600">
-            <a href="https://tjpromotions.pro" target="_blank" class="hover:text-[#fd5d5d] transition-colors">TJ Promotions</a>
-            <a href="https://smm.tjpromotions.pro" target="_blank" class="hover:text-[#fd5d5d] transition-colors">SMM Panel</a>
-            <a href="https://tjpromotions.pro/tools.php" target="_blank" class="hover:text-[#fd5d5d] transition-colors">Free Tools</a>
+            <a href="https://tjpromotions.pro" target="_blank" class="hover:text-[#5145cd] transition-colors">TJ Promotions</a>
+            <a href="https://smm.tjpromotions.pro" target="_blank" class="hover:text-[#5145cd] transition-colors">SMM Panel</a>
+            <a href="https://tjpromotions.pro/tools.php" target="_blank" class="hover:text-[#5145cd] transition-colors">Free Tools</a>
         </div>
     </div>
 </footer>
