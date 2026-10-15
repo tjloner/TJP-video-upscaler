@@ -8,7 +8,6 @@ import type {
 
 let gpu: any | false = false;
 let websr: any = null;
-let currentNetwork = 'anime4k/cnn-2x-l';
 let currentFamily: 'sharpen' | 'detail' = 'detail';
 let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
 let upscaled_canvas: OffscreenCanvas;
@@ -18,19 +17,18 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Bundled verified neural weights
+// Verified local weights
 const weightsRealLife = require('./weights/cnn-2x-l-rl.json');
 const weightsAnime = require('./weights/cnn-2x-l-an.json');
 const weightsFast = require('./weights/cnn-2x-s-an.json');
 
-function resolveModelConfig(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality'): { networkName: string; weights: any } {
+function getModelConfig(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality'): { networkName: string; weights: any } {
   if (tier === 'fast') {
     return { networkName: 'anime4k/cnn-2x-s', weights: weightsFast };
   }
   if (family === 'sharpen') {
     return { networkName: 'anime4k/cnn-2x-l', weights: weightsAnime };
   }
-  // Detail mode uses real-life photographic weights
   return { networkName: 'anime4k/cnn-2x-l', weights: weightsRealLife };
 }
 
@@ -46,38 +44,33 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
   const pw = bitmap.width;
   const ph = bitmap.height;
 
-  if (upscaled_canvas && original_canvas) {
-    if (upscaled_canvas.width !== pw * 2 || upscaled_canvas.height !== ph * 2) {
-      upscaled_canvas.width = pw * 2;
-      upscaled_canvas.height = ph * 2;
+  // 1. Draw Left Canvas (Original Raw Frame: pixelated nearest-neighbor)
+  if (original_canvas) {
+    if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
       original_canvas.width = pw * 2;
       original_canvas.height = ph * 2;
     }
+    if (!origCtx) {
+      origCtx = original_canvas.getContext('2d');
+    }
+    if (origCtx) {
+      origCtx.imageSmoothingEnabled = false;
+      origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
+    }
   }
 
-  if (!origCtx && original_canvas) {
-    origCtx = original_canvas.getContext('2d');
-  }
+  // 2. Resolve AI Model
+  const { networkName, weights } = getModelConfig(targetFamily, targetTier);
 
-  // 1. Paint Left Canvas (Original Raw: nearest-neighbor, authentic pixel inspection)
-  if (origCtx) {
-    origCtx.imageSmoothingEnabled = false;
-    origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
-  }
+  // 3. Setup WebSR ONCE, or use switchNetwork to prevent WebGPU Context crash!
+  if (!websr) {
+    if (upscaled_canvas) {
+      upscaled_canvas.width = pw * 2;
+      upscaled_canvas.height = ph * 2;
+      resolution = { width: pw, height: ph };
+      currentFamily = targetFamily;
+      currentTier = targetTier;
 
-  // 2. Resolve AI Model Config
-  const { networkName, weights } = resolveModelConfig(targetFamily, targetTier);
-
-  // Initialize or reconfigure WebSR instance safely
-  const needsReconfig = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
-
-  if (needsReconfig) {
-    resolution = { width: pw, height: ph };
-    currentFamily = targetFamily;
-    currentTier = targetTier;
-    currentNetwork = networkName;
-
-    if (gpu && upscaled_canvas) {
       try {
         websr = new WebSR({
           network_name: networkName as any,
@@ -86,19 +79,44 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
           gpu: gpu as any,
           canvas: upscaled_canvas as any
         });
-        console.log(`[TJP Worker]: Configured ${targetFamily.toUpperCase()} mode (${networkName})`);
+        console.log(`[TJP Worker]: Initialized WebSR (${networkName})`);
       } catch (err) {
-        console.warn("[TJP Worker]: WebSR init note:", err);
+        console.error("[TJP Worker]: WebSR initial configuration error:", err);
+      }
+    }
+  } else {
+    // Reconfigure existing instance WITHOUT destroying OffscreenCanvas context
+    const modelChanged = currentFamily !== targetFamily || currentTier !== targetTier;
+    const sizeChanged = resolution.width !== pw || resolution.height !== ph;
+
+    if (modelChanged || sizeChanged) {
+      resolution = { width: pw, height: ph };
+      currentFamily = targetFamily;
+      currentTier = targetTier;
+
+      try {
+        if (typeof websr.switchNetwork === 'function') {
+          websr.switchNetwork(networkName, weights);
+          console.log(`[TJP Worker]: Switched network to ${networkName}`);
+        } else {
+          // If switchNetwork is not present in 0.0.14, update params directly
+          websr.params.network_name = networkName;
+          websr.params.weights = weights;
+          websr.network = new (websr.constructor as any).NetworkList[networkName](weights);
+        }
+      } catch (e) {
+        console.warn("[TJP Worker]: switchNetwork note:", e);
       }
     }
   }
 
-  // 3. Paint Right Canvas (Enhanced WebGPU Neural Pass)
+  // 4. Render Enhanced Frame
   if (websr) {
     try {
       await websr.render(bitmap as any);
+      console.log(`[TJP Worker]: Successfully rendered ${targetFamily} frame (${pw}x${ph})`);
     } catch (e) {
-      console.warn("[TJP Worker]: Render pass note:", e);
+      console.error("[TJP Worker]: Render execution error:", e);
     }
   }
 }
