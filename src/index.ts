@@ -376,9 +376,9 @@ async function updateLiveVideoPreview(): Promise<void> {
 
     try {
         const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
-        const profileParam: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
+        const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'balanced';
 
-        // Extract 1:1 cropped patch (Zero downsampling blur!)
+        // Extract cropped 1:1 patch
         const patchBitmap = patchController 
             ? await patchController.getCroppedBitmap()
             : await createImageBitmap(video);
@@ -393,25 +393,27 @@ async function updateLiveVideoPreview(): Promise<void> {
 
             worker.postMessage({
                 cmd: "init",
+                family: currentFamily,
+                tier: currentTier,
                 data: {
                     bitmap: patchBitmap,
                     upscaled,
                     original,
-                    resolution: { width: pw, height: ph },
-                    profile: profileParam
+                    resolution: { width: pw, height: ph }
                 }
             }, [patchBitmap, upscaled, original]);
         } else {
             worker.postMessage({
                 cmd: "updatePreview",
+                family: currentFamily,
+                tier: currentTier,
                 data: {
-                    bitmap: patchBitmap,
-                    profile: profileParam
+                    bitmap: patchBitmap
                 }
             }, [patchBitmap]);
         }
     } catch (e) {
-        console.warn("Frame capture error:", e);
+        console.warn("[TJP Studio]: Frame capture error:", e);
     }
 }
 

@@ -8,8 +8,8 @@ import type {
 
 let gpu: any | false = false;
 let websr: any = null;
-let currentNetwork = 'katana/unet-u24';
-let currentWeights: any = null;
+let currentFamily: 'sharpen' | 'detail' = 'detail';
+let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
 let upscaled_canvas: OffscreenCanvas;
 let original_canvas: OffscreenCanvas;
 let resolution: Resolution = { width: 360, height: 360 };
@@ -17,12 +17,17 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Weight binary cache
 const weightBuffers: Record<string, any> = {};
 
-/**
- * Parses binary weight files (A4K\0 and UNT\0)
- */
+function getBaseUrl(): string {
+  if (typeof self !== 'undefined' && self.location && self.location.href) {
+    const href = self.location.href;
+    const idx = href.indexOf('/dist/') !== -1 ? href.indexOf('/dist/') : href.lastIndexOf('/');
+    return href.substring(0, idx + 1);
+  }
+  return '/';
+}
+
 function parseWeightsBinary(buffer: ArrayBuffer): any {
   const view = new DataView(buffer);
   const m0 = view.getUint8(0);
@@ -48,10 +53,7 @@ function parseWeightsBinary(buffer: ArrayBuffer): any {
   return buffer;
 }
 
-/**
- * Loads authentic binary weights on demand
- */
-async function loadWeightsForModel(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality' = 'balanced'): Promise<{ networkName: string; weights: any }> {
+async function resolveModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'balanced' | 'quality'): Promise<{ networkName: string; weights: any }> {
   let fileName = 'unet-u24.bin';
   let networkName = 'katana/unet-u24';
 
@@ -66,26 +68,27 @@ async function loadWeightsForModel(family: 'sharpen' | 'detail', tier: 'fast' | 
       fileName = 'cnn-16.bin';
       networkName = 'anime4k/cnn-2x-16';
     }
-  } else {
-    fileName = 'unet-u24.bin';
-    networkName = 'katana/unet-u24';
   }
 
   if (weightBuffers[fileName]) {
     return { networkName, weights: weightBuffers[fileName] };
   }
 
+  const baseUrl = getBaseUrl();
+  const url = `${baseUrl}weights/${fileName}`;
+
   try {
-    const res = await fetch(`./weights/${fileName}`);
-    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
     const parsed = parseWeightsBinary(buf);
     weightBuffers[fileName] = parsed;
+    console.log(`[TJP Worker]: Loaded binary weights from ${url}`);
     return { networkName, weights: parsed };
   } catch (err) {
-    console.warn(`Failed loading local ./weights/${fileName}, falling back to bundled weights:`, err);
-    // Fallback to bundled JSON weights if binary isn't reached
-    const fallback = family === 'detail' 
+    console.warn(`[TJP Worker]: Could not fetch ${url}, using bundled fallback:`, err);
+    // Bundled fallback guarantees the engine NEVER crashes into a blank screen
+    const fallback = family === 'detail'
       ? require('./weights/cnn-2x-l-rl.json')
       : require('./weights/cnn-2x-l-an.json');
     return { networkName: 'anime4k/cnn-2x-l', weights: fallback };
@@ -100,50 +103,71 @@ async function isSupported(): Promise<void> {
   } as any);
 }
 
-async function init(config: InitData): Promise<void> {
-  if (!gpu) {
-    gpu = await WebSR.initWebGPU();
+async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detail', targetTier: 'fast' | 'balanced' | 'quality'): Promise<void> {
+  const pw = bitmap.width;
+  const ph = bitmap.height;
+
+  if (upscaled_canvas && original_canvas) {
+    if (upscaled_canvas.width !== pw * 2 || upscaled_canvas.height !== ph * 2) {
+      upscaled_canvas.width = pw * 2;
+      upscaled_canvas.height = ph * 2;
+      original_canvas.width = pw * 2;
+      original_canvas.height = ph * 2;
+    }
   }
 
-  const pw = config.bitmap ? config.bitmap.width : (config.resolution?.width || 360);
-  const ph = config.bitmap ? config.bitmap.height : (config.resolution?.height || 360);
-  resolution = { width: pw, height: ph };
+  if (!origCtx && original_canvas) {
+    origCtx = original_canvas.getContext('2d');
+  }
 
-  upscaled_canvas = config.upscaled;
-  original_canvas = config.original;
+  // 1. Paint Left Canvas (Original Raw: nearest-neighbor, authentic pixel inspection)
+  if (origCtx) {
+    origCtx.imageSmoothingEnabled = false;
+    origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
+  }
 
-  upscaled_canvas.width = pw * 2;
-  upscaled_canvas.height = ph * 2;
-  original_canvas.width = pw * 2;
-  original_canvas.height = ph * 2;
+  // 2. Resolve AI Model
+  const { networkName, weights } = await resolveModelWeights(targetFamily, targetTier);
 
-  origCtx = original_canvas.getContext('2d');
+  // Initialize or reconfigure WebSR instance safely
+  if (!websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier) {
+    resolution = { width: pw, height: ph };
+    currentFamily = targetFamily;
+    currentTier = targetTier;
 
-  const { networkName, weights } = await loadWeightsForModel('detail', 'balanced');
-  currentNetwork = networkName;
-  currentWeights = weights;
-
-  try {
-    websr = new WebSR({
-      network_name: currentNetwork as any,
-      weights: currentWeights,
-      resolution: { width: pw, height: ph },
-      gpu: gpu as any,
-      canvas: config.upscaled as any
-    });
-
-    // 1. Render Left Canvas: Raw patch with crisp nearest-neighbor display
-    if (origCtx && config.bitmap) {
-      origCtx.imageSmoothingEnabled = false;
-      origCtx.drawImage(config.bitmap, 0, 0, pw * 2, ph * 2);
+    if (gpu && upscaled_canvas) {
+      try {
+        websr = new WebSR({
+          network_name: networkName as any,
+          weights: weights,
+          resolution: { width: pw, height: ph },
+          gpu: gpu as any,
+          canvas: upscaled_canvas as any
+        });
+      } catch (e) {
+        console.warn("[TJP Worker]: WebSR network init failed, falling back to baseline network:", e);
+        try {
+          websr = new WebSR({
+            network_name: 'anime4k/cnn-2x-l' as any,
+            weights: require('./weights/cnn-2x-l-rl.json'),
+            resolution: { width: pw, height: ph },
+            gpu: gpu as any,
+            canvas: upscaled_canvas as any
+          });
+        } catch (err) {
+          console.error("[TJP Worker]: Critical WebSR init failure:", err);
+        }
+      }
     }
+  }
 
-    // 2. Render Right Canvas: True U-Net Neural Pass on identical patch
-    if (websr && config.bitmap) {
-      await websr.render(config.bitmap as any);
+  // 3. Paint Right Canvas (Enhanced WebGPU Neural Pass)
+  if (websr) {
+    try {
+      await websr.render(bitmap as any);
+    } catch (e) {
+      console.warn("[TJP Worker]: Render pass error:", e);
     }
-  } catch (e) {
-    console.warn("Worker init render note:", e);
   }
 }
 
@@ -151,13 +175,40 @@ self.onmessage = async function (event: MessageEvent<any>) {
   if (!event.data || !event.data.cmd) return;
 
   switch (event.data.cmd) {
-    case 'init':
-      await init(event.data.data);
+    case 'init': {
+      if (!gpu) {
+        gpu = await WebSR.initWebGPU();
+      }
+
+      const config: InitData = event.data.data;
+      upscaled_canvas = config.upscaled;
+      original_canvas = config.original;
+
+      const family = (event.data.family as 'sharpen' | 'detail') || 'detail';
+      const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || 'balanced';
+
+      if (config.bitmap) {
+        await renderFrameToCanvases(config.bitmap, family, tier);
+        config.bitmap.close();
+      }
       break;
+    }
 
     case 'isSupported':
       await isSupported();
       break;
+
+    case 'updatePreview': {
+      const { bitmap } = event.data.data;
+      if (!bitmap) break;
+
+      const family = (event.data.family as 'sharpen' | 'detail') || currentFamily;
+      const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || currentTier;
+
+      await renderFrameToCanvases(bitmap, family, tier);
+      bitmap.close();
+      break;
+    }
 
     case 'pause':
       if (!pauseLock) {
@@ -194,68 +245,5 @@ self.onmessage = async function (event: MessageEvent<any>) {
         getPauseLock: () => pauseLock
       });
       break;
-
-    case 'updatePreview': {
-      const { bitmap, profile } = event.data.data;
-      if (!bitmap) break;
-
-      const pw = bitmap.width;
-      const ph = bitmap.height;
-
-      const isSharpen = profile === 'text';
-      const targetFamily: 'sharpen' | 'detail' = isSharpen ? 'sharpen' : 'detail';
-      const { networkName, weights } = await loadWeightsForModel(targetFamily, 'balanced');
-
-      const needsReinit = !websr || resolution.width !== pw || resolution.height !== ph || currentNetwork !== networkName;
-
-      if (needsReinit) {
-        resolution = { width: pw, height: ph };
-        currentNetwork = networkName;
-        currentWeights = weights;
-
-        if (upscaled_canvas && original_canvas) {
-          upscaled_canvas.width = pw * 2;
-          upscaled_canvas.height = ph * 2;
-          original_canvas.width = pw * 2;
-          original_canvas.height = ph * 2;
-        }
-
-        if (gpu && upscaled_canvas) {
-          try {
-            websr = new WebSR({
-              network_name: currentNetwork as any,
-              weights: currentWeights,
-              resolution: { width: pw, height: ph },
-              gpu: gpu as any,
-              canvas: upscaled_canvas as any
-            });
-          } catch (err) {
-            console.warn("WebSR preview reconfig note:", err);
-          }
-        }
-      }
-
-      // Draw Left Canvas (Identical patch crop, crisp raw pixels)
-      if (origCtx) {
-        try {
-          origCtx.imageSmoothingEnabled = false;
-          origCtx.drawImage(bitmap, 0, 0, pw * 2, ph * 2);
-        } catch (e) {
-          console.warn("Left canvas draw note:", e);
-        }
-      }
-
-      // Draw Right Canvas (True U-Net / Deep CNN reconstructed patch)
-      if (websr) {
-        try {
-          await websr.render(bitmap as any);
-        } catch (e) {
-          console.warn("Right canvas neural pass note:", e);
-        }
-      }
-
-      bitmap.close();
-      break;
-    }
   }
 };
