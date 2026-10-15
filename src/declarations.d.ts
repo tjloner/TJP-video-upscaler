@@ -47,3 +47,13 @@ declare module '*.json' {
   export default value;
 }
 declare module '*.css';
+declare module './lib/websr-custom' {
+  export default class WebSR {
+    constructor(options: any);
+    render(source: any, progress?: any): Promise<void>;
+    switchNetwork(networkName: string, weights: any): void;
+    static initWebGPU(): Promise<any>;
+    static parseUNetWeights(buffer: ArrayBuffer): any;
+    static parseBinaryWeights(buffer: ArrayBuffer): any;
+  }
+}
