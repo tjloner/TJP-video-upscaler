@@ -293,11 +293,19 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
         video.onseeked = async () => {
-            await new Promise(r => setTimeout(r, 60));
+            // Wait for video frame to paint into buffer
+            if ('requestVideoFrameCallback' in video) {
+                await new Promise<void>(resolve => {
+                    (video as any).requestVideoFrameCallback(() => resolve());
+                });
+            } else {
+                await new Promise(r => setTimeout(r, 80));
+            }
             if (patchController) patchController.renderMinimap();
             await updateLiveVideoPreview();
         };
 
+        // Seek to first snapshot
         video.currentTime = snapTimes[0];
 
         setTimeout(async () => {

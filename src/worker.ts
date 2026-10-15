@@ -29,8 +29,7 @@ function parseBinaryWeights(buffer: ArrayBuffer): any {
   if (r === 65 && o === 52 && a === 75 && s === 0) {
     const view = new DataView(buffer);
     let offset = 4;
-    const version = view.getUint32(offset, true);
-    offset += 4;
+    offset += 4; // skip version
     const layerCount = view.getUint32(offset, true);
     offset += 4;
     const layers: Record<string, any> = {};
@@ -67,12 +66,10 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
   let networkName = 'katana/unet-u24';
 
   if (family === 'sharpen') {
+    // Avoid cnn-28 buffer allocation overflow which blanks the right side
     if (tier === 'fast') {
       fileName = 'cnn-8.bin';
       networkName = 'anime4k/cnn-2x-l';
-    } else if (tier === 'quality') {
-      fileName = 'cnn-28.bin';
-      networkName = 'anime4k/cnn-2x-28';
     } else {
       fileName = 'cnn-16.bin';
       networkName = 'anime4k/cnn-2x-16';
@@ -92,10 +89,9 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
     const buf = await res.arrayBuffer();
     const parsed = parseBinaryWeights(buf);
     weightBuffers[fileName] = parsed;
-    console.log(`[TJP Engine]: Loaded neural weights: ${fileName}`);
     return { networkName, weights: parsed };
   } catch (err) {
-    console.warn(`[TJP Engine]: Could not load ${fileName}, falling back to bundled weights:`, err);
+    console.warn(`[TJP Engine]: Fallback for ${fileName}:`, err);
     return {
       networkName: 'anime4k/cnn-2x-l',
       weights: family === 'detail' ? require('./weights/cnn-2x-l-rl.json') : require('./weights/cnn-2x-l-an.json')
@@ -119,7 +115,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
   const pw = Math.floor(bitmap.width / 2) * 2;
   const ph = Math.floor(bitmap.height / 2) * 2;
 
-  // 1. Draw Left Canvas: Authentic raw low-res pixels (chunky nearest-neighbor)
+  // 1. Draw Left Canvas: Raw pixels
   if (original_canvas) {
     if (original_canvas.width !== pw * 2 || original_canvas.height !== ph * 2) {
       original_canvas.width = pw * 2;
@@ -134,7 +130,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     }
   }
 
-  // 2. Resolve model configuration (U-Net for Detail, Deep CNN-28 for Sharpen)
+  // 2. Resolve Model Configuration
   const { networkName, weights } = await loadModelWeights(targetFamily, targetTier);
   const modelChanged = currentFamily !== targetFamily || currentTier !== targetTier || currentNetwork !== networkName;
   const sizeChanged = resolution.width !== pw || resolution.height !== ph;
@@ -156,7 +152,6 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
           gpu: gpu as any,
           canvas: upscaled_canvas as any
         });
-        console.log(`[TJP Engine]: Initialized WebSR -> ${networkName}`);
       } catch (err) {
         console.error("[TJP Engine]: WebSR init error:", err);
       }
@@ -174,18 +169,16 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
 
     try {
       websr.switchNetwork(networkName, weights);
-      console.log(`[TJP Engine]: Switched network -> ${networkName}`);
     } catch (e) {
       console.warn("[TJP Engine]: switchNetwork note:", e);
     }
   }
 
-  // 3. Render Enhanced Output to Right Canvas
+  // 3. Render Enhanced Output to Right Canvas with GPU flush
   if (websr && gpu) {
     try {
       await websr.render(bitmap as any);
       await gpu.queue.onSubmittedWorkDone();
-      console.log(`[TJP Engine]: Frame presented on screen -> ${targetFamily.toUpperCase()} (${targetTier})`);
     } catch (e) {
       console.error("[TJP Engine]: Render pass error:", e);
     }
