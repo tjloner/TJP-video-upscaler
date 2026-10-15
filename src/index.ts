@@ -376,7 +376,7 @@ async function updateLiveVideoPreview(): Promise<void> {
 
     try {
         const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
-        const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'balanced';
+        const currentTier = (Alpine.store('videoTier') as VideoModelTier) || 'quality';
 
         // Extract cropped 1:1 patch
         const patchBitmap = patchController 
@@ -385,6 +385,14 @@ async function updateLiveVideoPreview(): Promise<void> {
 
         const pw = patchBitmap.width;
         const ph = patchBitmap.height;
+
+        // CRITICAL FIX: Lock playerFrame to the exact pixel aspect ratio of the crop!
+        const playerFrame = document.getElementById('player-frame');
+        if (playerFrame) {
+            playerFrame.style.width = `${pw}px`;
+            playerFrame.style.height = `${ph}px`;
+            playerFrame.style.aspectRatio = `${pw} / ${ph}`;
+        }
 
         if (!isOffscreenTransferred && upscaled_canvas && original_canvas) {
             const upscaled = upscaled_canvas.transferControlToOffscreen();
