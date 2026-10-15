@@ -10,13 +10,12 @@ let websr: any = null;
 let currentFamily: 'sharpen' | 'detail' = 'detail';
 let currentTier: 'fast' | 'balanced' | 'quality' = 'balanced';
 
-// Worker-internal render canvases (independent of DOM detachment)
 let workerUpscaledCanvas: OffscreenCanvas | null = null;
 let resolution: Resolution = { width: 360, height: 360 };
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
-// Verified local neural weights
+// Bundled neural weights
 const weightsRealLife = require('./weights/cnn-2x-l-rl.json');
 const weightsAnime = require('./weights/cnn-2x-l-an.json');
 const weightsFast = require('./weights/cnn-2x-s-an.json');
@@ -40,17 +39,32 @@ async function isSupported(): Promise<void> {
 }
 
 async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detail', targetTier: 'fast' | 'balanced' | 'quality'): Promise<void> {
-  const pw = bitmap.width;
-  const ph = bitmap.height;
+  // Guarantee GPU initialized
+  if (!gpu) {
+    gpu = await WebSR.initWebGPU();
+  }
 
-  // 1. Prepare raw original bitmap (nearest-neighbor 2x for authentic comparison)
-  const rawBitmap = await createImageBitmap(bitmap, {
-    resizeWidth: pw * 2,
-    resizeHeight: ph * 2,
-    resizeQuality: 'pixelated' as any
-  });
+  // Ensure dimensions are strictly even multiples of 2
+  const pw = Math.floor(bitmap.width / 2) * 2;
+  const ph = Math.floor(bitmap.height / 2) * 2;
 
-  // 2. Resolve target model configuration
+  // 1. Raw original frame
+  let rawBitmap: ImageBitmap;
+  try {
+    rawBitmap = await createImageBitmap(bitmap, {
+      resizeWidth: pw * 2,
+      resizeHeight: ph * 2,
+      resizeQuality: 'pixelated' as any
+    });
+  } catch {
+    rawBitmap = await createImageBitmap(bitmap, {
+      resizeWidth: pw * 2,
+      resizeHeight: ph * 2,
+      resizeQuality: 'low'
+    });
+  }
+
+  // 2. Resolve model configuration
   const { networkName, weights } = getModelConfig(targetFamily, targetTier);
   const configChanged = !websr || resolution.width !== pw || resolution.height !== ph || currentFamily !== targetFamily || currentTier !== targetTier;
 
@@ -80,15 +94,13 @@ async function renderFrameToCanvases(bitmap: ImageBitmap, targetFamily: 'sharpen
     }
   }
 
-  // 3. Render Enhanced Output to internal worker canvas
+  // 3. Render Enhanced Output & Dispatch to UI
   if (websr && workerUpscaledCanvas) {
     try {
       await websr.render(bitmap as any);
       
-      // Grab rendered bitmap directly from worker canvas
       const upscaledBitmap = await createImageBitmap(workerUpscaledCanvas);
 
-      // Post both bitmaps directly to main thread for guaranteed instantaneous DOM presentation
       (postMessage as any)({
         cmd: 'previewRendered',
         original: rawBitmap,

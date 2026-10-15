@@ -14,9 +14,6 @@ const worker = new Worker(new URL('./worker.ts', import.meta.url));
 
 let upscaled_canvas: HTMLCanvasElement;
 let original_canvas: HTMLCanvasElement;
-let upscaled_ctx: CanvasRenderingContext2D | null = null;
-let original_ctx: CanvasRenderingContext2D | null = null;
-
 let video: HTMLVideoElement;
 let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
@@ -65,7 +62,6 @@ declare global {
 document.addEventListener("DOMContentLoaded", index);
 
 async function index(): Promise<void> {
-    // Video Stores
     Alpine.store('appMode', 'video');
     Alpine.store('state', 'init');
     Alpine.store('target', 'blob');
@@ -87,7 +83,6 @@ async function index(): Promise<void> {
     Alpine.store('filename', '');
     Alpine.store('error', '');
 
-    // Image Stores
     Alpine.store('imageState', 'init');
     Alpine.store('imageScale', 4);
     Alpine.store('imagePreset', 'ultra' as ImageModelPreset);
@@ -101,7 +96,6 @@ async function index(): Promise<void> {
     Alpine.store('imageProgressMessage', 'Applying ESRGAN neural reconstruction...');
     Alpine.store('imageProgress', 0);
 
-    // Audio Stores
     Alpine.store('audioState', 'init');
     Alpine.store('audioFileName', '');
     Alpine.store('audioDuration', '');
@@ -116,15 +110,11 @@ async function index(): Promise<void> {
     upscaled_canvas = document.getElementById("upscaled") as HTMLCanvasElement;
     original_canvas = document.getElementById('original') as HTMLCanvasElement;
 
-    if (upscaled_canvas) upscaled_ctx = upscaled_canvas.getContext('2d');
-    if (original_canvas) original_ctx = original_canvas.getContext('2d');
-
     if (!("VideoEncoder" in window)) return showUnsupported("WebCodecs API");
     if (!window.showSaveFilePicker) return showUnsupported("File System Access API");
 
     worker.postMessage({ cmd: 'isSupported' } satisfies WorkerRequestMessage);
     
-    // Global bindings
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
@@ -371,7 +361,6 @@ async function updateLiveVideoPreview(): Promise<void> {
             ? await patchController.getCroppedBitmap()
             : await createImageBitmap(video);
 
-        // Tell worker to render preview using transferToImageBitmap pipeline
         worker.postMessage({
             cmd: "updatePreview",
             family: currentFamily,
@@ -385,28 +374,32 @@ async function updateLiveVideoPreview(): Promise<void> {
     }
 }
 
-// Handle all messages from worker
+// Receive and present rendered frames directly to DOM canvases
 worker.onmessage = function (event: MessageEvent<any>) {
     if (event.data.cmd === 'previewRendered') {
-        // PRESENTATION TO DOM CANVASES
         const { original, upscaled, width, height } = event.data;
 
-        if (original_canvas && original_ctx && original) {
-            if (original_canvas.width !== width || original_canvas.height !== height) {
-                original_canvas.width = width;
-                original_canvas.height = height;
+        const origCanvas = document.getElementById('original') as HTMLCanvasElement;
+        const upCanvas = document.getElementById('upscaled') as HTMLCanvasElement;
+
+        if (origCanvas) {
+            origCanvas.width = width;
+            origCanvas.height = height;
+            const ctx = origCanvas.getContext('2d');
+            if (ctx && original) {
+                ctx.drawImage(original, 0, 0);
+                original.close();
             }
-            original_ctx.drawImage(original, 0, 0);
-            original.close();
         }
 
-        if (upscaled_canvas && upscaled_ctx && upscaled) {
-            if (upscaled_canvas.width !== width || upscaled_canvas.height !== height) {
-                upscaled_canvas.width = width;
-                upscaled_canvas.height = height;
+        if (upCanvas) {
+            upCanvas.width = width;
+            upCanvas.height = height;
+            const ctx = upCanvas.getContext('2d');
+            if (ctx && upscaled) {
+                ctx.drawImage(upscaled, 0, 0);
+                upscaled.close();
             }
-            upscaled_ctx.drawImage(upscaled, 0, 0);
-            upscaled.close();
         }
     } else if (event.data.cmd === 'isSupported') {
         if (!event.data.data) return showUnsupported("WebGPU API");

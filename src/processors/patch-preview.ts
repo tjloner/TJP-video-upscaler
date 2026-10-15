@@ -44,29 +44,31 @@ export class PatchPreviewController {
     const vW = this.video.videoWidth || 640;
     const vH = this.video.videoHeight || 360;
 
-    // Determine optimal patch size based on source video aspect ratio
     const isWidescreen = vW >= vH;
     let patchW = isWidescreen ? 480 : 360;
     let patchH = isWidescreen ? Math.round(patchW * (vH / vW)) : 420;
 
-    patchW = Math.min(patchW, vW);
-    patchH = Math.min(patchH, vH);
+    // Enforce multiples of 8 to prevent WebGPU workgroup crashes
+    patchW = Math.floor(Math.min(patchW, vW) / 8) * 8;
+    patchH = Math.floor(Math.min(patchH, vH) / 8) * 8;
 
-    // Initial center crop
     this.crop = {
-      x: Math.max(0, Math.round((vW - patchW) / 2)),
-      y: Math.max(0, Math.round((vH - patchH) / 2)),
+      x: Math.floor(Math.max(0, (vW - patchW) / 2) / 2) * 2,
+      y: Math.floor(Math.max(0, (vH - patchH) / 2) / 2) * 2,
       width: patchW,
       height: patchH
     };
 
-    // Size frame using exact aspect ratio
+    // Explicitly set BOTH width and height on playerFrame so it never collapses to 0px
     this.playerFrame.style.width = `${patchW}px`;
+    this.playerFrame.style.height = `${patchH}px`;
+    this.playerFrame.style.minWidth = `${patchW}px`;
+    this.playerFrame.style.minHeight = `${patchH}px`;
     this.playerFrame.style.maxWidth = '100%';
-    this.compareContainer.style.aspectRatio = `${patchW} / ${patchH}`;
+    this.playerFrame.style.maxHeight = '100%';
 
-    // Size minimap: Math.min(0.3 * patchW, 160)
-    const miniW = Math.round(Math.min(0.35 * patchW, 150));
+    // Minimap calculation
+    const miniW = Math.round(Math.min(0.35 * patchW, 140));
     const miniH = Math.round(miniW * (vH / vW));
     this.minimapCanvas.width = miniW;
     this.minimapCanvas.height = miniH;
@@ -115,8 +117,8 @@ export class PatchPreviewController {
     let newX = Math.round(targetCenterX - this.crop.width / 2);
     let newY = Math.round(targetCenterY - this.crop.height / 2);
 
-    newX = Math.max(0, Math.min(vW - this.crop.width, newX));
-    newY = Math.max(0, Math.min(vH - this.crop.height, newY));
+    newX = Math.floor(Math.max(0, Math.min(vW - this.crop.width, newX)) / 2) * 2;
+    newY = Math.floor(Math.max(0, Math.min(vH - this.crop.height, newY)) / 2) * 2;
 
     this.crop.x = newX;
     this.crop.y = newY;
