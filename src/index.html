@@ -338,30 +338,28 @@ class="min-h-screen flex flex-col justify-between antialiased">
                     <!-- LEFT COLUMN: VIDEO SLIDER VIEWPORT -->
                     <div class="lg:col-span-7 flex flex-col items-center w-full">
                         
+                        <!-- 1:1 CROP PATCH VIEWPORT WITH MINIMAP -->
                         <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative" style="height: 440px;">
                             
                             <!-- 2X ZOOM & CONTROLS TOOLBAR -->
                             <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
-                                <button type="button" 
-                                        @click="toggleZoomMode()"
-                                        :class="$store.isZoomed ? 'bg-[#5145cd] text-white border-[#5145cd]' : 'bg-black/70 text-white border-white/20 hover:bg-black'"
-                                        class="px-2.5 py-1 rounded-lg text-xs font-bold border backdrop-blur-md transition-all flex items-center gap-1.5 shadow-md">
-                                    <span>🔍</span> <span x-text="$store.isZoomed ? '2× Zoom ON' : '1× Fit'"></span>
-                                </button>
+                                <span class="bg-black/70 backdrop-blur-md text-white text-[10px] font-mono px-2 py-1 rounded-md border border-white/10">
+                                    1:1 Pixel Inspection
+                                </span>
                             </div>
 
+                            <!-- Native 1:1 Canvas Player Frame -->
                             <div class="w-full h-full flex justify-center items-center overflow-hidden pointer-events-auto">
                                 <div x-ref="activeVideoFrame" 
                                      id="player-frame" 
                                      @mousedown="startDrag($event)" 
                                      @touchstart="startDrag($event)"
-                                     :class="$store.isZoomed ? 'scale-[2.0] cursor-grab' : 'scale-100 cursor-ew-resize'"
-                                     class="relative overflow-hidden user-select-none transition-transform duration-200 ease-out origin-center">
+                                     class="relative overflow-hidden user-select-none cursor-ew-resize origin-center shadow-2xl">
                                     
-                                    <!-- LEFT: ORIGINAL RAW FRAME -->
-                                    <canvas id="original" class="video-canvas-layer pointer-events-none"></canvas>
+                                    <!-- LEFT: RAW UNTOUCHED 1:1 PIXELS (Crisp nearest-neighbor) -->
+                                    <canvas id="original" class="video-canvas-layer pointer-events-none" style="image-rendering: pixelated;"></canvas>
                                     
-                                    <!-- RIGHT: ENHANCED NEURAL PASS -->
+                                    <!-- RIGHT: ENHANCED NEURAL PATCH -->
                                     <div class="video-canvas-layer pointer-events-none overflow-hidden" 
                                          :style="'clip-path: polygon(' + sliderPos + '% 0, 100% 0, 100% 100%, ' + sliderPos + '% 100%)'">
                                         <canvas id="upscaled" class="video-canvas-layer pointer-events-none"></canvas>
@@ -380,12 +378,21 @@ class="min-h-screen flex flex-col justify-between antialiased">
                                             Original (Raw)
                                         </span>
                                     </div>
-                                    <div class="absolute top-3 left-28 z-30 pointer-events-none">
+                                    <div class="absolute top-3 right-3 z-30 pointer-events-none">
                                         <span class="bg-[#5145cd]/95 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">
                                             AI Enhanced
                                         </span>
                                     </div>
                                 </div>
+                            </div>
+
+                            <!-- DRAGGABLE MINIMAP IN BOTTOM-LEFT CORNER (Exact like free.upscaler.video) -->
+                            <div id="patch-minimap-wrap" 
+                                 class="absolute bottom-3 left-3 z-30 border-2 border-white/80 rounded-lg overflow-hidden bg-black shadow-lg cursor-crosshair leading-none">
+                                <canvas id="patch-minimap" class="block pointer-events-auto"></canvas>
+                                <!-- Purple Draggable Viewport Box -->
+                                <div id="patch-viewport-box" 
+                                     class="absolute border-2 border-[#5145cd] bg-[#5145cd]/25 pointer-events-none transition-all duration-75"></div>
                             </div>
                         </div>
 

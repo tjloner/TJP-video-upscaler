@@ -1,6 +1,7 @@
 import Alpine from 'alpinejs';
 import { upscaleImage, ImageModelPreset } from './processors/image-processor';
 import { enhanceAudioFile } from './processors/audio-processor';
+import { PatchPreviewController } from './processors/patch-preview';
 import type { WorkerRequestMessage, EngineMode, VideoProfilePreset } from './types/worker-messages';
 
 import 'bootstrap';
@@ -18,6 +19,8 @@ let download_name: string;
 let inputFileHandle: FileSystemFileHandle;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
+
+let patchController: PatchPreviewController | null = null;
 
 let activeImageBitmap: ImageBitmap | null = null;
 let originalImageSrcUrl: string = '';
@@ -257,33 +260,36 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('height', vHeight);
 
         const playerFrame = document.getElementById('player-frame');
-        const isPortrait = vHeight > vWidth;
-        const targetBoxHeight = 420;
-        
-        let displayWidth: number;
-        let displayHeight: number;
+        const minimapCanvas = document.getElementById('patch-minimap') as HTMLCanvasElement;
+        const viewportBox = document.getElementById('patch-viewport-box') as HTMLElement;
 
-        if (isPortrait) {
-            displayHeight = targetBoxHeight;
-            displayWidth = Math.round(targetBoxHeight * (vWidth / vHeight));
-        } else {
-            const containerMaxW = 540;
-            displayHeight = Math.min(targetBoxHeight, Math.round(containerMaxW * (vHeight / vWidth)));
-            displayWidth = Math.round(displayHeight * (vWidth / vHeight));
-        }
+        const patchDisplaySize = 400;
 
         if (playerFrame) {
-            playerFrame.style.width = `${displayWidth}px`;
-            playerFrame.style.height = `${displayHeight}px`;
-            playerFrame.style.minWidth = `${displayWidth}px`;
-            playerFrame.style.minHeight = `${displayHeight}px`;
+            playerFrame.style.width = `${patchDisplaySize}px`;
+            playerFrame.style.height = `${patchDisplaySize}px`;
+            playerFrame.style.minWidth = `${patchDisplaySize}px`;
+            playerFrame.style.minHeight = `${patchDisplaySize}px`;
         }
 
         if (upscaled_canvas && original_canvas) {
-            upscaled_canvas.width = vWidth * 2;
-            upscaled_canvas.height = vHeight * 2;
-            original_canvas.width = vWidth * 2;
-            original_canvas.height = vHeight * 2;
+            upscaled_canvas.width = patchDisplaySize * 2;
+            upscaled_canvas.height = patchDisplaySize * 2;
+            original_canvas.width = patchDisplaySize * 2;
+            original_canvas.height = patchDisplaySize * 2;
+        }
+
+        if (minimapCanvas && viewportBox) {
+            patchController = new PatchPreviewController({
+                video,
+                minimapCanvas,
+                viewportBox,
+                containerWidth: patchDisplaySize,
+                containerHeight: patchDisplaySize,
+                onCropChange: async () => {
+                    await updateLiveVideoPreview();
+                }
+            });
         }
 
         const dur = video.duration || 10;
@@ -307,6 +313,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         video.onseeked = async () => {
             await new Promise(r => setTimeout(r, 60));
+            if (patchController) patchController.renderMinimap();
             await updateLiveVideoPreview();
         };
 
@@ -314,6 +321,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         setTimeout(async () => {
             if (Alpine.store('state') === 'loading') {
+                if (patchController) patchController.renderMinimap();
                 await updateLiveVideoPreview();
             }
         }, 800);
@@ -366,12 +374,16 @@ async function updateLiveVideoPreview(): Promise<void> {
     }
 
     try {
-        const w = video.videoWidth || 640;
-        const h = video.videoHeight || 360;
         const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
         const profileParam: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
 
-        const frameBitmap = await createImageBitmap(video);
+        // Extract 1:1 cropped patch (Zero downsampling blur!)
+        const patchBitmap = patchController 
+            ? await patchController.getCroppedBitmap()
+            : await createImageBitmap(video);
+
+        const pw = patchBitmap.width;
+        const ph = patchBitmap.height;
 
         if (!isOffscreenTransferred && upscaled_canvas && original_canvas) {
             const upscaled = upscaled_canvas.transferControlToOffscreen();
@@ -381,21 +393,21 @@ async function updateLiveVideoPreview(): Promise<void> {
             worker.postMessage({
                 cmd: "init",
                 data: {
-                    bitmap: frameBitmap,
+                    bitmap: patchBitmap,
                     upscaled,
                     original,
-                    resolution: { width: w, height: h },
+                    resolution: { width: pw, height: ph },
                     profile: profileParam
                 }
-            }, [frameBitmap, upscaled, original]);
+            }, [patchBitmap, upscaled, original]);
         } else {
             worker.postMessage({
                 cmd: "updatePreview",
                 data: {
-                    bitmap: frameBitmap,
+                    bitmap: patchBitmap,
                     profile: profileParam
                 }
-            }, [frameBitmap]);
+            }, [patchBitmap]);
         }
     } catch (e) {
         console.warn("Frame capture error:", e);
