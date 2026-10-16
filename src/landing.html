@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TJP AI Studio — In-Browser 4K Video, Image & Audio Super-Resolution Suite</title>
+    <meta name="description" content="Upscale videos to 4K 60FPS, reconstruct photo details, and master studio voice tracks locally on your GPU. 100% private. Zero upload queues.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-[#fafafa] text-[#0f172a] font-sans antialiased selection:bg-indigo-100 selection:text-indigo-900">
+
+    <!-- Top Navigation -->
+    <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/80">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+            <a href="#" class="flex items-center gap-2.5 no-underline">
+                <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white font-extrabold text-sm shadow-md shadow-brand-500/20">
+                    T
+                </div>
+                <span class="font-extrabold text-lg tracking-tight text-slate-900">TJP <span class="text-brand-600">Studio</span></span>
+            </a>
+
+            <nav class="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
+                <a href="#demo" class="hover:text-brand-600 transition-colors">5-Sec Demo</a>
+                <a href="#features" class="hover:text-brand-600 transition-colors">Features</a>
+                <a href="#comparison" class="hover:text-brand-600 transition-colors">Why TJP?</a>
+                <a href="#pricing" class="hover:text-brand-600 transition-colors">Pricing</a>
+                <a href="#faq" class="hover:text-brand-600 transition-colors">FAQ</a>
+            </nav>
+
+            <div class="flex items-center gap-3">
+                <a href="index.html" class="inline-flex items-center justify-center px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition shadow-sm">
+                    Open Studio ↗
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="pt-16 pb-14 px-4 sm:px-6 max-w-5xl mx-auto text-center">
+        <!-- Live Privacy Badge -->
+        <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-800 text-xs font-bold mb-6">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            100% Client-Side WebGPU • Zero Cloud Upload Queues
+        </div>
+
+        <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.12]">
+            Studio-Grade AI Enhancement.<br class="hidden sm:inline">
+            <span class="bg-gradient-to-r from-brand-600 to-indigo-600 bg-clip-text text-transparent">Directly on Your Graphics Card.</span>
+        </h1>
+
+        <p class="mt-5 text-base sm:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            Upscale videos to 4K 60FPS with 1:1 frame integrity, reconstruct sub-pixel photographic textures, and master voice recordings in under a second. No server queues. No privacy leaks.
+        </p>
+
+        <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3.5">
+            <a href="index.html" class="w-full sm:w-auto px-7 py-3.5 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 transition shadow-lg shadow-brand-500/25 flex items-center justify-center gap-2">
+                <span>Launch Studio</span>
+                <span>→</span>
+            </a>
+            <a href="#demo" class="w-full sm:w-auto px-6 py-3.5 rounded-xl text-sm font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition shadow-sm">
+                Try 5-Second Preview
+            </a>
+        </div>
+
+        <!-- Metric highlights -->
+        <div class="mt-12 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl mx-auto text-left">
+            <div class="bg-white p-4 rounded-xl border border-slate-200/70 shadow-sm">
+                <div class="font-mono text-2xl font-bold text-slate-900">32 Mbps</div>
+                <div class="text-xs text-slate-500 mt-0.5">True 4K Video Output</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-slate-200/70 shadow-sm">
+                <div class="font-mono text-2xl font-bold text-slate-900">24-Layer</div>
+                <div class="text-xs text-slate-500 mt-0.5">Deep U-Net Engine</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-slate-200/70 shadow-sm">
+                <div class="font-mono text-2xl font-bold text-emerald-600">0.0s</div>
+                <div class="text-xs text-slate-500 mt-0.5">Server Queue Time</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl border border-slate-200/70 shadow-sm">
+                <div class="font-mono text-2xl font-bold text-slate-900">48 kHz</div>
+                <div class="text-xs text-slate-500 mt-0.5">Studio WAV Master</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Interactive 5-Second Demo Hook Section -->
+    <section id="demo" class="py-16 bg-white border-y border-slate-200/80 px-4 sm:px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-8">
+                <span class="text-xs font-bold text-brand-600 uppercase tracking-wider bg-brand-50 px-3 py-1 rounded-full border border-brand-100">Zero-Wait Interactive Sandbox</span>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-2">See It Enhance in Real-Time</h2>
+                <p class="text-slate-500 text-sm mt-1 max-w-md mx-auto">Slide the comparison bar to inspect sub-pixel reconstruction vs. raw input.</p>
+            </div>
+
+            <!-- Demo Card with Split Slider Preview Simulation -->
+            <div class="bg-slate-950 rounded-2xl p-3 sm:p-5 shadow-2xl border border-slate-800">
+                <div class="relative overflow-hidden rounded-xl aspect-[16/9] max-h-[460px] flex items-center justify-center bg-black group select-none">
+                    
+                    <!-- Simulated Split Viewport -->
+                    <div id="demo-split-box" class="relative w-full h-full overflow-hidden flex items-center justify-center">
+                        <!-- Left: Raw Original -->
+                        <div class="absolute inset-0 flex items-center justify-center bg-slate-900">
+                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=40" alt="Original Low-Res Sample" class="w-full h-full object-cover filter blur-[2px] brightness-90">
+                        </div>
+
+                        <!-- Right: AI Enhanced (Clipped) -->
+                        <div id="demo-clipped-layer" class="absolute inset-0 flex items-center justify-center overflow-hidden" style="clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);">
+                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=100" alt="AI Enhanced Sample" class="w-full h-full object-cover contrast-105">
+                        </div>
+
+                        <!-- Draggable Divider Line -->
+                        <div id="demo-divider" class="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_12px_rgba(0,0,0,0.9)] pointer-events-none" style="left: 50%;">
+                            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white text-slate-900 shadow-md flex items-center justify-center text-xs font-bold">
+                                ◀▶
+                            </div>
+                        </div>
+
+                        <!-- Badges -->
+                        <div class="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-white text-[10px] font-bold uppercase tracking-wider">
+                            Source (Raw)
+                        </div>
+                        <div class="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wider">
+                            TJP AI 4K Enhanced
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Interactive Call to Action Bar below Demo -->
+                <div class="mt-4 pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-300">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-brand-500"></span>
+                        <span>Experience the full 5-second test directly in the studio with your own media.</span>
+                    </div>
+                    <a href="index.html" class="px-5 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-bold transition">
+                        Enhance Your Clip Now →
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3-in-1 Engine Feature Grid -->
+    <section id="features" class="py-16 px-4 sm:px-6 max-w-5xl mx-auto">
+        <div class="text-center mb-12">
+            <span class="text-xs font-bold text-brand-600 uppercase tracking-wider bg-brand-50 px-3 py-1 rounded-full border border-brand-100">Professional Suite</span>
+            <h2 class="text-3xl font-extrabold text-slate-900 mt-2">Three Dedicated Creative AI Engines</h2>
+            <p class="text-slate-500 text-sm mt-1 max-w-md mx-auto">Engineered without cloud subscriptions or restrictive credit meters.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Feature 1: Video -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xl mb-4">🎬</div>
+                    <h3 class="text-lg font-bold text-slate-900 mb-2">4K Video Super-Resolution</h3>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        Frame-locked WebCodecs pipeline with dual models: 24-Layer U-Net for human facial textures and Deep CNN for crisp graphic lines. Zero-copy hardware VRAM rendering.
+                    </p>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-mono text-brand-600 font-semibold">
+                    <span>1:1 Frame Integrity</span>
+                    <span>32 Mbps 4K</span>
+                </div>
+            </div>
+
+            <!-- Feature 2: Image -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xl mb-4">🖼️</div>
+                    <h3 class="text-lg font-bold text-slate-900 mb-2">Sub-Pixel Image Upscaler</h3>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        Reconstructs real fabric, hair, paper grain, and architectural contours. Features adaptive WebGPU memory tiling to upscale multi-megapixel images beyond 8K without crashing.
+                    </p>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-mono text-brand-600 font-semibold">
+                    <span>Adaptive Tiling</span>
+                    <span>No Plastic Look</span>
+                </div>
+            </div>
+
+            <!-- Feature 3: Audio -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div>
+                    <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-xl mb-4">🎙️</div>
+                    <h3 class="text-lg font-bold text-slate-900 mb-2">Voice & Music Studio Master</h3>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        Dual-engine audio suite. Voice mode strips room echo and fan noise with an adaptive gate and de-esser. Music mode preserves 55Hz sub-bass and adds 3D stereo widening.
+                    </p>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs font-mono text-brand-600 font-semibold">
+                    <span>Drop MP4 Videos</span>
+                    <span>-14 LUFS Target</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Why TJP Studio Beats Competitors Table -->
+    <section id="comparison" class="py-16 bg-slate-900 text-white px-4 sm:px-6">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-10">
+                <span class="text-xs font-bold text-brand-400 uppercase tracking-wider bg-brand-950/80 px-3 py-1 rounded-full border border-brand-800">Architectural Advantage</span>
+                <h2 class="text-2xl sm:text-3xl font-extrabold text-white mt-2">How TJP Studio Outclasses Legacy Tools</h2>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs sm:text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase">
+                            <th class="py-3 px-4">Feature</th>
+                            <th class="py-3 px-4 text-brand-400 font-bold">TJP AI Studio</th>
+                            <th class="py-3 px-4">Topaz Video AI</th>
+                            <th class="py-3 px-4">Cloud AI Upscalers</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60 text-slate-300">
+                        <tr>
+                            <td class="py-3.5 px-4 font-semibold text-white">Client Data Privacy</td>
+                            <td class="py-3.5 px-4 text-emerald-400 font-bold">100% Local (Never leaves device)</td>
+                            <td class="py-3.5 px-4">Local (Heavy install)</td>
+                            <td class="py-3.5 px-4 text-rose-400">Uploaded to 3rd-party servers</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3.5 px-4 font-semibold text-white">Pricing Model</td>
+                            <td class="py-3.5 px-4 text-emerald-400 font-bold">Flat Unlimited (Zero Credits)</td>
+                            <td class="py-3.5 px-4">$299 Upfront + Yearly Fee</td>
+                            <td class="py-3.5 px-4 text-rose-400">Expensive per-second credits</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3.5 px-4 font-semibold text-white">Render Queue Times</td>
+                            <td class="py-3.5 px-4 text-emerald-400 font-bold">Instant (0.0s queue)</td>
+                            <td class="py-3.5 px-4">Instant</td>
+                            <td class="py-3.5 px-4 text-rose-400">15 to 45 min waiting lines</td>
+                        </tr>
+                        <tr>
+                            <td class="py-3.5 px-4 font-semibold text-white">All-In-One Media Suite</td>
+                            <td class="py-3.5 px-4 text-emerald-400 font-bold">Video + Image + Voice + Music</td>
+                            <td class="py-3.5 px-4">Video Only</td>
+                            <td class="py-3.5 px-4">Sold separately</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Commercial Pricing Cards -->
+    <section id="pricing" class="py-16 px-4 sm:px-6 max-w-5xl mx-auto">
+        <div class="text-center mb-12">
+            <span class="text-xs font-bold text-brand-600 uppercase tracking-wider bg-brand-50 px-3 py-1 rounded-full border border-brand-100">Transparent Plans</span>
+            <h2 class="text-3xl font-extrabold text-slate-900 mt-2">Unlimited Super-Resolution Access</h2>
+            <p class="text-slate-500 text-sm mt-1 max-w-md mx-auto">No confusing credits. Choose your pass and unlock unlimited local GPU throughput.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+            <!-- Plan 1: 48-Hour Pass -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Weekend Creator Pass</h3>
+                    <p class="text-xs text-slate-500 mt-1">Perfect for single project deliveries & rush client jobs.</p>
+                    <div class="mt-4 flex items-baseline gap-1">
+                        <span class="text-3xl font-extrabold text-slate-900">$9</span>
+                        <span class="text-xs text-slate-400">/ 48 hours</span>
+                    </div>
+                    <ul class="mt-6 space-y-2.5 text-xs text-slate-600">
+                        <li class="flex items-center gap-2">✓ <strong>Unlimited</strong> 4K Video Exports</li>
+                        <li class="flex items-center gap-2">✓ <strong>No Duration Limits</strong> on clips</li>
+                        <li class="flex items-center gap-2">✓ Full U-Net & Anime4K models</li>
+                        <li class="flex items-center gap-2">✓ 48-Hour Instant Access</li>
+                    </ul>
+                </div>
+                <a href="index.html" class="mt-8 block text-center py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 transition">
+                    Get 48-Hour Access
+                </a>
+            </div>
+
+            <!-- Plan 2: Monthly Pro (Popular) -->
+            <div class="bg-white rounded-2xl p-6 border-2 border-brand-600 shadow-xl shadow-brand-500/10 flex flex-col justify-between relative">
+                <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-full shadow-sm">
+                    Most Popular
+                </div>
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Pro Unlimited Monthly</h3>
+                    <p class="text-xs text-slate-500 mt-1">Full access for content creators, agencies, and editors.</p>
+                    <div class="mt-4 flex items-baseline gap-1">
+                        <span class="text-3xl font-extrabold text-slate-900">$19</span>
+                        <span class="text-xs text-slate-400">/ month</span>
+                    </div>
+                    <ul class="mt-6 space-y-2.5 text-xs text-slate-600">
+                        <li class="flex items-center gap-2 text-brand-600 font-bold">✓ Unlimited 4K Video Exports</li>
+                        <li class="flex items-center gap-2 text-brand-600 font-bold">✓ Multi-Megapixel 8K Image Upscaler</li>
+                        <li class="flex items-center gap-2 text-brand-600 font-bold">✓ Studio Voice & Music Mastering</li>
+                        <li class="flex items-center gap-2">✓ Commercial Client License</li>
+                        <li class="flex items-center gap-2">✓ Cancel Anytime with 1-Click</li>
+                    </ul>
+                </div>
+                <a href="index.html" class="mt-8 block text-center py-3 rounded-xl text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 transition shadow-md shadow-brand-500/25">
+                    Start Pro Membership →
+                </a>
+            </div>
+
+            <!-- Plan 3: Lifetime -->
+            <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900">Lifetime Studio License</h3>
+                    <p class="text-xs text-slate-500 mt-1">Pay once, own forever. Zero recurring subscription fees.</p>
+                    <div class="mt-4 flex items-baseline gap-1">
+                        <span class="text-3xl font-extrabold text-slate-900">$99</span>
+                        <span class="text-xs text-slate-400">one-time</span>
+                    </div>
+                    <ul class="mt-6 space-y-2.5 text-xs text-slate-600">
+                        <li class="flex items-center gap-2">✓ <strong>Lifetime</strong> Unlimited Access</li>
+                        <li class="flex items-center gap-2">✓ All Video, Image & Audio Engines</li>
+                        <li class="flex items-center gap-2">✓ All Future Neural Weights (.bin)</li>
+                        <li class="flex items-center gap-2">✓ Commercial Agency Rights</li>
+                    </ul>
+                </div>
+                <a href="index.html" class="mt-8 block text-center py-2.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 transition">
+                    Buy Lifetime Access
+                </a>
+            </div>
+        </div>
+
+        <!-- Payment Badges -->
+        <div class="mt-8 flex items-center justify-center gap-6 text-slate-400 text-xs font-semibold">
+            <span class="flex items-center gap-1.5">🔒 SSL Encrypted</span>
+            <span>•</span>
+            <span class="flex items-center gap-1.5">💳 PayPal Accepted</span>
+            <span>•</span>
+            <span class="flex items-center gap-1.5">⚡ Instant Crypto/USDT (Cryptomus)</span>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="w-full py-8 border-t border-slate-200/80 bg-white text-xs text-slate-500 mt-12">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>© 2026 <strong>TJP AI Studio</strong>. All rights reserved. 100% Private WebGPU Processing.</div>
+            <div class="flex gap-4">
+                <a href="index.html" class="hover:text-brand-600">Studio App</a>
+                <a href="#features" class="hover:text-brand-600">Features</a>
+                <a href="#pricing" class="hover:text-brand-600">Pricing</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Interactive Comparison Slider Script for the Demo -->
+    <script>
+        const splitBox = document.getElementById('demo-split-box');
+        const clippedLayer = document.getElementById('demo-clipped-layer');
+        const divider = document.getElementById('demo-divider');
+
+        if (splitBox && clippedLayer && divider) {
+            let isMoving = false;
+
+            const updateSlider = (clientX) => {
+                const rect = splitBox.getBoundingClientRect();
+                const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
+                const pct = (x / rect.width) * 100;
+                divider.style.left = `${pct}%`;
+                clippedLayer.style.clipPath = `polygon(${pct}% 0, 100% 0, 100% 100%, ${pct}% 100%)`;
+            };
+
+            splitBox.addEventListener('mousedown', () => isMoving = true);
+            splitBox.addEventListener('touchstart', () => isMoving = true, { passive: true });
+
+            window.addEventListener('mouseup', () => isMoving = false);
+            window.addEventListener('touchend', () => isMoving = false);
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isMoving) return;
+                updateSlider(e.clientX);
+            });
+            window.addEventListener('touchmove', (e) => {
+                if (!isMoving) return;
+                updateSlider(e.touches[0].clientX);
+            }, { passive: true });
+        }
+    </script>
+</body>
+</html>
