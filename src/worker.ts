@@ -81,7 +81,7 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
   if (family === 'sharpen') {
     if (tier === 'fast') {
       fileName = 'cnn-8.bin';
-      networkName = 'anime4k/cnn-2x-s';
+      networkName = 'anime4k/cnn-2x-l';
     } else {
       // Balanced and Quality use the powerful 16-layer CNN network
       fileName = 'cnn-16.bin';
@@ -184,7 +184,8 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     currentTier = targetTier;
     currentNetwork = networkName;
 
-    if (upscaled_canvas) {
+    // Only update canvas dimensions if size actually changed (prevents canvas clear)
+    if (sizeChanged && upscaled_canvas) {
       upscaled_canvas.width = pw * 2;
       upscaled_canvas.height = ph * 2;
     }

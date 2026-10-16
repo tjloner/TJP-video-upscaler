@@ -195,7 +195,9 @@ const WebSR = (() => {
             delete this.buffers[t];
           }
           for (const t of Object.keys(this.textures)) {
-            try { this.textures[t].destroy(); } catch (e) {}
+            if (t !== "output") {
+              try { this.textures[t].destroy(); } catch (e) {}
+            }
             delete this.textures[t];
           }
         }
@@ -1139,6 +1141,16 @@ const WebSR = (() => {
               await this.context.device.queue.onSubmittedWorkDone();
               e(t + 1, this.tiles.length);
             }
+          }
+          if (s) {
+            const sCmd = this.context.device.createCommandEncoder();
+            sCmd.copyTextureToTexture(
+              { texture: o },
+              { texture: this.context.context.getCurrentTexture() },
+              [this.context.canvasResolution.width * n, this.context.canvasResolution.height * n]
+            );
+            this.context.device.queue.submit([sCmd.finish()]);
+            await this.context.device.queue.onSubmittedWorkDone();
           }
         }
         destroy() { this.context.destroy(); }
