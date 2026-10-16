@@ -185,7 +185,15 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
   } = args;
 
   try {
-    const file = await inputHandle.getFile();
+    // Safely resolve file whether it's a FileSystemFileHandle or a direct File/Blob
+    const file: File = typeof (inputHandle as any)?.getFile === 'function'
+      ? await (inputHandle as any).getFile()
+      : (inputHandle as any);
+
+    if (!file) {
+      return postMessage({ cmd: 'error', data: 'No video file selected or file handle was empty.' } as any);
+    }
+
     const demuxer = new WebDemuxer({
       wasmFilePath: "https://cdn.jsdelivr.net/npm/web-demuxer@latest/dist/wasm-files/web-demuxer.wasm",
     });

@@ -16,7 +16,7 @@ let upscaled_canvas: HTMLCanvasElement;
 let original_canvas: HTMLCanvasElement;
 let video: HTMLVideoElement;
 let download_name: string;
-let inputFileHandle: FileSystemFileHandle;
+let inputFileHandle: any;
 let isOffscreenTransferred = false;
 let wakeLockSentinel: any = null;
 
@@ -228,14 +228,17 @@ async function chooseFile(e?: Event): Promise<void> {
     }
 }
 
-async function loadVideo(fileHandle: FileSystemFileHandle): Promise<void> {
+async function loadVideo(source: any): Promise<void> {
     Alpine.store('state', 'loading');
-    inputFileHandle = fileHandle;
+    inputFileHandle = source;
 
-    const file = await fileHandle.getFile();
+    // Safely resolve whether it's a FileSystemFileHandle or a direct File object
+    const file: File = typeof source?.getFile === 'function'
+        ? await source.getFile()
+        : source;
 
-    if (file.size === 0) {
-        return showError("The selected video file is empty.");
+    if (!file || file.size === 0) {
+        return showError("The selected video file is empty or could not be read.");
     }
 
     download_name = file.name.split(".")[0] + "-TJP-ENHANCED.mp4";
@@ -503,35 +506,16 @@ async function initRecording(): Promise<void> {
     } as any);
 }
 
-// Automatically pulls pending video dropped on landing.html
+// Seamlessly opens file picker when arriving from landing page trial button (0 memory freeze)
 function checkAndLoadPendingTrialVideo(): void {
     const urlParams = new URLSearchParams(window.location.search);
-    if (!urlParams.has('trial')) return;
-
-    const req = indexedDB.open('tjp_trial_store', 1);
-    req.onsuccess = (e) => {
-        const db = (e.target as any).result;
-        if (!db.objectStoreNames.contains('files')) return;
-
-        const tx = db.transaction('files', 'readwrite');
-        const store = tx.objectStore('files');
-        const getReq = store.get('pending_trial_video');
-
-        getReq.onsuccess = async () => {
-            const file = getReq.result;
-            if (file instanceof File || file instanceof Blob) {
-                store.delete('pending_trial_video');
-                
-                download_name = (file instanceof File ? file.name.split('.')[0] : 'trial') + "-TJP-5SEC-ENHANCED.mp4";
-                Alpine.store('download_name', download_name);
-                Alpine.store('filename', file instanceof File ? file.name : 'trial_video.mp4');
-                Alpine.store('state', 'loading');
-
-                const arrayBuffer = await file.arrayBuffer();
-                await setupPreview(arrayBuffer);
+    if (urlParams.get('trial') === '5s') {
+        setTimeout(() => {
+            if (Alpine.store('state') === 'init') {
+                chooseFile();
             }
-        };
-    };
+        }, 350);
+    }
 }
 
 // ============================================================================
