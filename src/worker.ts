@@ -19,6 +19,9 @@ let origCtx: any = null;
 let pauseLock: Promise<void> | null = null;
 let resolvePause: (() => void) | null = null;
 
+// Mutex queue to prevent concurrent GPU submissions and buffer destruction races
+let renderChain: Promise<void> = Promise.resolve();
+
 const weightBuffers: Record<string, any> = {};
 
 // Normalizes weights so .layers is always present (eliminates undefined conv2d_tf crash)
@@ -165,6 +168,11 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
       }
     }
   } else if (modelChanged || sizeChanged) {
+    // Flush any pending GPU operations before tearing down or rebuilding pipelines
+    if (gpu && gpu.queue) {
+      try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
+    }
+
     resolution = { width: pw, height: ph };
     currentFamily = targetFamily;
     currentTier = targetTier;
@@ -176,7 +184,7 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     }
 
     try {
-      websr.switchNetwork(networkName, weights);
+      await websr.switchNetwork(networkName, weights);
       console.log(`[TJP Engine]: Switched network -> ${networkName}`);
     } catch (e) {
       console.warn("[TJP Engine]: switchNetwork note:", e);
@@ -195,15 +203,11 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
   }
 }
 
-self.onmessage = async function (event: MessageEvent<any>) {
+self.onmessage = function (event: MessageEvent<any>) {
   if (!event.data || !event.data.cmd) return;
 
   switch (event.data.cmd) {
     case 'init': {
-      if (!gpu) {
-        gpu = await WebSR.initWebGPU();
-      }
-
       const config: InitData = event.data.data;
       upscaled_canvas = config.upscaled;
       original_canvas = config.original;
@@ -212,14 +216,20 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || 'balanced';
 
       if (config.bitmap) {
-        await renderFrame(config.bitmap, family, tier);
-        config.bitmap.close();
+        const bmp = config.bitmap;
+        renderChain = renderChain.then(async () => {
+          try {
+            await renderFrame(bmp, family, tier);
+          } finally {
+            bmp.close();
+          }
+        });
       }
       break;
     }
 
     case 'isSupported':
-      await isSupported();
+      isSupported();
       break;
 
     case 'updatePreview': {
@@ -229,8 +239,13 @@ self.onmessage = async function (event: MessageEvent<any>) {
       const family = (event.data.family as 'sharpen' | 'detail') || currentFamily;
       const tier = (event.data.tier as 'fast' | 'balanced' | 'quality') || currentTier;
 
-      await renderFrame(bitmap, family, tier);
-      bitmap.close();
+      renderChain = renderChain.then(async () => {
+        try {
+          await renderFrame(bitmap, family, tier);
+        } finally {
+          bitmap.close();
+        }
+      });
       break;
     }
 
@@ -251,22 +266,24 @@ self.onmessage = async function (event: MessageEvent<any>) {
       break;
 
     case 'process':
-      await pipelineProcessor({
-        inputHandle: event.data.inputHandle,
-        outputHandle: event.data.outputHandle,
-        websr: websr as any,
-        upscaled_canvas: upscaled_canvas || new OffscreenCanvas(360, 360),
-        original_canvas: original_canvas || new OffscreenCanvas(360, 360),
-        resolution,
-        preset: event.data.preset,
-        targetScale: event.data.targetScale,
-        targetWidth: event.data.targetWidth,
-        targetHeight: event.data.targetHeight,
-        targetBitrate: event.data.targetBitrate,
-        engineMode: event.data.engineMode || 'deep',
-        profile: event.data.profile || 'photo',
-        aiModel: event.data.aiModel,
-        getPauseLock: () => pauseLock
+      renderChain = renderChain.then(async () => {
+        await pipelineProcessor({
+          inputHandle: event.data.inputHandle,
+          outputHandle: event.data.outputHandle,
+          websr: websr as any,
+          upscaled_canvas: upscaled_canvas || new OffscreenCanvas(360, 360),
+          original_canvas: original_canvas || new OffscreenCanvas(360, 360),
+          resolution,
+          preset: event.data.preset,
+          targetScale: event.data.targetScale,
+          targetWidth: event.data.targetWidth,
+          targetHeight: event.data.targetHeight,
+          targetBitrate: event.data.targetBitrate,
+          engineMode: event.data.engineMode || 'deep',
+          profile: event.data.profile || 'photo',
+          aiModel: event.data.aiModel,
+          getPauseLock: () => pauseLock
+        });
       });
       break;
   }

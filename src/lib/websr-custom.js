@@ -18,16 +18,17 @@ const WebSR = (() => {
         }
         computeShaderInputs() {
           const t = [];
-          for (let e = 0; e < this.inputs.length; e++)
-            if (this.inputs[e] instanceof GPUTexture)
+          for (let e = 0; e < this.inputs.length; e++) {
+            const input = this.inputs[e];
+            if (input instanceof GPUTexture)
               t.push(`@group(0) @binding(${e}) var inputTexture${e}: texture_2d<f32>;`);
-            else if (this.inputs[e] instanceof GPUExternalTexture)
+            else if (input instanceof GPUExternalTexture)
               t.push(`@group(0) @binding(${e}) var inputTexture${e}: texture_external;`);
-            else {
-              if (!(this.inputs[e] instanceof GPUBuffer))
-                throw new Error("Input is undefined or non of the correct input type");
+            else if (input instanceof GPUBuffer)
               t.push(`@group(0) @binding(${e}) var<storage, read_write> inputBuffer${e}: array<vec4f>;`);
-            }
+            else
+              throw new Error("Input is undefined or non of the correct input type");
+          }
           return this.uniforms.forEach(((e, i) => {
             t.push(`@group(0) @binding(${i + this.inputs.length}) var <uniform> ${e.name}: ${e.type};`);
           })), t.push(`@group(0) @binding(${this.inputs.length + this.uniforms.length}) var <storage, read_write> outputBuffer: array<vec4f>;`), t.join("\n");
@@ -104,7 +105,9 @@ const WebSR = (() => {
           this.device = t, this.precision = null != a ? a : "auto", this.canvas = r, this.processResolution = e, this.canvasResolution = i, this.outputResolution = null != o ? o : { width: i.width * n, height: i.height * n }, this.textures = {}, this.buffers = {}, this.destroyed = !1, this.scale = n, this.debug = s;
           let l = this.canvas.getContext("webgpu");
           if (!(l instanceof GPUCanvasContext)) throw new Error("Unable to load WebGPU context");
-          this.context = l, this.textureUsage = GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC, this.bufferUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, this.context.configure({ device: this.device, format: navigator.gpu.getPreferredCanvasFormat(), usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST }), this.debug && (this.bufferUsage = this.bufferUsage | GPUBufferUsage.COPY_SRC), this.textures.output = this.context.getCurrentTexture();
+          this.context.configure({ device: this.device, format: navigator.gpu.getPreferredCanvasFormat(), usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC }), this.debug && (this.bufferUsage = this.bufferUsage | GPUBufferUsage.COPY_SRC), this.textures.output = this.context.getCurrentTexture();
+          // Pre-bind default input texture so network initialization shaders never see undefined input
+          this.input = this.texture("input", { format: "rgba8unorm" });
         }
         async readBuffer(t) {
           if (!this.buffers[t]) throw new Error(`No buffer with name ${t}`);
@@ -673,6 +676,15 @@ const WebSR = (() => {
             }
           return t;
         }
+        async materializeInput(t) {
+          if (t instanceof GPUTexture) return t;
+          const e = (0, o.getSourceWidth)(t), i = (0, o.getSourceHeight)(t);
+          const r = this.context.texture("materialized_input", { width: e, height: i, format: "rgba8unorm" });
+          const n = (0, o.isImageBitmap)(t) ? t : await createImageBitmap(t);
+          this.context.device.queue.copyExternalImageToTexture({ source: n }, { texture: r }, [e, i]);
+          if (n !== t && typeof n.close === "function") n.close();
+          return r;
+        }
         async render(t, e) {
           let i, r = null != t ? t : this.source;
           !(0, o.isVideoFrame)(r) && !(0, o.isHTMLVideoElement)(r) || (0, o.externalTexturesSupported)(this.context.device, r) || (r = i = await createImageBitmap(r));
@@ -733,25 +745,6 @@ const WebSR = (() => {
         destroy() { this.context.destroy(); }
       };
     },
-    242: (t, e) => {
-      Object.defineProperty(e, "__esModule", { value: !0 }), e.default = class {
-        constructor(t, e) {
-          this.context = globalThis.context, this.device = this.context.device, this.sampler = this.device.createSampler({ addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", magFilter: "linear", minFilter: "linear" });
-          const i = this.device.createShaderModule({
-            label: "downscale-shader",
-            code: "struct VertexShaderOutput { @builtin(position) position: vec4f, @location(0) tex_coord: vec2f };\n@vertex\nfn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexShaderOutput {\n  let pos = array(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));\n  var vsOutput: VertexShaderOutput;\n  let xy = pos[vertexIndex];\n  vsOutput.position = vec4f(xy, 0.0, 1.0);\n  vsOutput.tex_coord = xy * 0.5 + 0.5;\n  vsOutput.tex_coord.y = 1.0 - vsOutput.tex_coord.y;\n  return vsOutput;\n}\n@group(0) @binding(0) var inputTexture: texture_2d<f32>;\n@group(0) @binding(1) var ourSampler: sampler;\n@fragment\nfn fragmentMain(input: VertexShaderOutput) -> @location(0) vec4f {\n  return textureSample(inputTexture, ourSampler, input.tex_coord);\n}"
-          });
-          this.pipeline = this.device.createRenderPipeline({ label: "downscale-pipeline", layout: "auto", vertex: { module: i, entryPoint: "vertexMain" }, fragment: { module: i, entryPoint: "fragmentMain", targets: [{ format: e.format }] } });
-          this.bindGroup = this.device.createBindGroup({ layout: this.pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: t.createView() }, { binding: 1, resource: this.sampler }] });
-          this.renderPassDescriptor = { label: "downscale-render-pass", colorAttachments: [{ view: e.createView(), clearValue: [0, 0, 0, 1], loadOp: "clear", storeOp: "store" }] };
-        }
-        setOutput(t) { this.renderPassDescriptor = { label: "downscale-render-pass", colorAttachments: [{ view: t.createView(), clearValue: [0, 0, 0, 1], loadOp: "clear", storeOp: "store" }] }; }
-        run() {
-          const t = this.device.createCommandEncoder({ label: "downscale" }), e = t.beginRenderPass(this.renderPassDescriptor);
-          e.setPipeline(this.pipeline), e.setBindGroup(0, this.bindGroup), e.draw(6), e.end(), this.device.queue.submit([t.finish()]);
-        }
-      };
-    },
     535: (t, e, i) => {
       Object.defineProperty(e, "__esModule", { value: !0 });
       const r = i(23);
@@ -787,7 +780,6 @@ const WebSR = (() => {
           this.context = new n.default(this.params.gpu, this.processResolution, this.canvasResolution, this.canvas, this.scale, this.debug, e, this.params.precision),
           globalThis.context = this.context;
           
-          // Auto-normalize weights so missing .layers never crashes with undefined conv2d_tf
           let w = this.params.weights;
           if (w && !w.layers && !w.format && (w.conv2d_tf || w.conv2d_tf1)) {
             w = { name: "", layers: w };
@@ -798,13 +790,13 @@ const WebSR = (() => {
           this.initialized = !0;
         }
         async switchNetwork(t, e) {
-          // AWAIT GPU FLUSH before cleaning up buffers to prevent "used in submit while destroyed" error!
           if (this.params.gpu && this.params.gpu.queue) {
             try { await this.params.gpu.queue.onSubmittedWorkDone(); } catch (err) {}
           }
-          this.params = Object.assign(Object.assign({}, this.params), { network_name: t, weights: e }),
-          this.context && this.context.cleanup(),
-          this.planTiles(this.canvasResolution.width, this.canvasResolution.height),
+          this.params = Object.assign(Object.assign({}, this.params), { network_name: t, weights: e });
+          this.scale = o.NetworkScales[t] || this.scale;
+          this.context && this.context.cleanup();
+          this.planTiles(this.canvasResolution.width, this.canvasResolution.height);
           this.initialize();
         }
         planTiles(t, e) {

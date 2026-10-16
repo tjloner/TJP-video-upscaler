@@ -75,68 +75,73 @@ export async function upscaleImage(
     canvas: canvasPass1 as any,
   });
 
-  await websrPass1.render(imageSource as any, (done: number, total: number) => {
-    if (total > 1) {
-      const pct = Math.round(35 + (done / total) * 35);
-      options.onProgress?.('processing', pct, `Tiled Reconstruction: ${done}/${total} patches`);
-    }
-  });
+  try {
+    await websrPass1.render(imageSource as any, (done: number, total: number) => {
+      if (total > 1) {
+        const pct = Math.round(35 + (done / total) * 35);
+        options.onProgress?.('processing', pct, `Tiled Reconstruction: ${done}/${total} patches`);
+      }
+    });
 
-  // Await GPU execution flush
-  if (gpu.queue) {
-    try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
-  }
-
-  options.onProgress?.('processing', 75, 'Composing target resolution...');
-
-  // Stage 2: Target Dimension Scaling (if 4x requested)
-  let finalCanvas: OffscreenCanvas = canvasPass1;
-  const targetWidth = inWidth * scale;
-  const targetHeight = inHeight * scale;
-
-  if (scale === 4) {
-    const canvasPass2 = new OffscreenCanvas(targetWidth, targetHeight);
-    const ctx2 = canvasPass2.getContext('2d', { willReadFrequently: true });
-    if (!ctx2) throw new Error("Could not create 2D canvas context");
-
-    ctx2.imageSmoothingEnabled = true;
-    ctx2.imageSmoothingQuality = 'high';
-
-    const pass1Bitmap = await createImageBitmap(canvasPass1);
-    ctx2.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
-    pass1Bitmap.close();
-
-    // High-frequency detail synthesis on edges (only on canvases <= 4096 to prevent memory freeze)
-    if (targetWidth <= 4096 && targetHeight <= 4096) {
-      applyStructuralSharpening(ctx2, targetWidth, targetHeight, options.preset);
+    // Await GPU execution flush
+    if (gpu.queue) {
+      try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
     }
 
-    finalCanvas = canvasPass2;
+    options.onProgress?.('processing', 75, 'Composing target resolution...');
+
+    // Stage 2: Target Dimension Scaling (if 4x requested)
+    let finalCanvas: OffscreenCanvas = canvasPass1;
+    const targetWidth = inWidth * scale;
+    const targetHeight = inHeight * scale;
+
+    if (scale === 4) {
+      const canvasPass2 = new OffscreenCanvas(targetWidth, targetHeight);
+      const ctx2 = canvasPass2.getContext('2d', { willReadFrequently: true });
+      if (!ctx2) throw new Error("Could not create 2D canvas context");
+
+      ctx2.imageSmoothingEnabled = true;
+      ctx2.imageSmoothingQuality = 'high';
+
+      const pass1Bitmap = await createImageBitmap(canvasPass1);
+      ctx2.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
+      pass1Bitmap.close();
+
+      // High-frequency detail synthesis on edges (only on canvases <= 4096 to prevent memory freeze)
+      if (targetWidth <= 4096 && targetHeight <= 4096) {
+        applyStructuralSharpening(ctx2, targetWidth, targetHeight, options.preset);
+      }
+
+      finalCanvas = canvasPass2;
+    }
+
+    options.onProgress?.('processing', 95, 'Exporting Lossless PNG...');
+
+    // Clean export to PNG Blob
+    if (typeof (finalCanvas as any).convertToBlob === 'function') {
+      return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
+    }
+
+    const exportBitmap = await createImageBitmap(finalCanvas);
+    const fallbackCanvas = document.createElement('canvas');
+    fallbackCanvas.width = targetWidth;
+    fallbackCanvas.height = targetHeight;
+    const fallbackCtx = fallbackCanvas.getContext('2d');
+    if (fallbackCtx) {
+      fallbackCtx.drawImage(exportBitmap, 0, 0);
+    }
+    exportBitmap.close();
+
+    return await new Promise<Blob>((resolve, reject) => {
+      fallbackCanvas.toBlob((b) => {
+        if (b) resolve(b);
+        else reject(new Error("Image blob conversion failed"));
+      }, 'image/png');
+    });
+  } finally {
+    // Free GPU buffers and textures
+    try { await websrPass1.destroy(); } catch (e) {}
   }
-
-  options.onProgress?.('processing', 95, 'Exporting Lossless PNG...');
-
-  // Clean export to PNG Blob
-  if (typeof (finalCanvas as any).convertToBlob === 'function') {
-    return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
-  }
-
-  const exportBitmap = await createImageBitmap(finalCanvas);
-  const fallbackCanvas = document.createElement('canvas');
-  fallbackCanvas.width = targetWidth;
-  fallbackCanvas.height = targetHeight;
-  const fallbackCtx = fallbackCanvas.getContext('2d');
-  if (fallbackCtx) {
-    fallbackCtx.drawImage(exportBitmap, 0, 0);
-  }
-  exportBitmap.close();
-
-  return await new Promise<Blob>((resolve, reject) => {
-    fallbackCanvas.toBlob((b) => {
-      if (b) resolve(b);
-      else reject(new Error("Image blob conversion failed"));
-    }, 'image/png');
-  });
 }
 
 function applyStructuralSharpening(
