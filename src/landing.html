@@ -43,7 +43,6 @@
             overflow-x: hidden;
         }
 
-        /* 3D Glassmorphic Cards & Ambient Lighting */
         .ambient-spotlight {
             background: radial-gradient(800px circle at var(--mouse-x, 50%) var(--mouse-y, 30%), rgba(37, 99, 235, 0.15), transparent 50%);
         }
@@ -81,11 +80,19 @@
             transform: translateY(-1px);
             box-shadow: 0 8px 25px 0 rgba(37, 99, 235, 0.55);
         }
+
+        .video-slider-layer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="antialiased selection:bg-[#fd5d5d]/20 selection:text-white">
 
-    <!-- Ambient Cursor Glow Canvas Container -->
     <div id="spotlight-layer" class="ambient-spotlight fixed inset-0 pointer-events-none z-0"></div>
 
     <!-- Navigation Header -->
@@ -103,7 +110,6 @@
                 <a href="#sandbox" class="hover:text-white transition">5-Sec Sandbox</a>
                 <a href="#savings" class="hover:text-white transition">Value Matrix</a>
                 <a href="#pricing" class="hover:text-white transition">Pricing</a>
-                <a href="#faq" class="hover:text-white transition">FAQ</a>
             </nav>
 
             <div class="flex items-center gap-3">
@@ -117,10 +123,9 @@
 
     <!-- Hero Section -->
     <section class="relative z-10 pt-16 sm:pt-24 pb-14 px-4 sm:px-6 max-w-5xl mx-auto text-center">
-        <!-- 3-in-1 Suite Announcement Pill -->
         <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold text-slate-300 mb-6">
             <span class="w-2 h-2 rounded-full bg-[#fd5d5d] animate-pulse"></span>
-            <span>3-in-1 Creative Powerhouse</span>
+            <span>3-in-1 Creative Suite</span>
             <span class="text-slate-500">•</span>
             <span class="text-[#fd5d5d]">Video + Image + Audio in 1 License</span>
         </div>
@@ -134,18 +139,16 @@
             Upscale videos to 4K 60FPS with 1:1 frame integrity, reconstruct sub-pixel photographic textures, and master voice recordings in under a second. Runs directly on your device's GPU.
         </p>
 
-        <!-- CTA Buttons -->
         <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
             <a href="index.html" class="w-full sm:w-auto btn-coral px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
-                <span>Launch Studio Suite</span>
+                <span>Launch Full Studio</span>
                 <span>→</span>
             </a>
             <a href="#sandbox" class="w-full sm:w-auto px-7 py-3.5 rounded-xl text-sm font-bold text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] transition">
-                Test 5-Second Sandbox
+                Test 5-Second Trial
             </a>
         </div>
 
-        <!-- Metric Cards -->
         <div class="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl mx-auto text-left">
             <div class="tilt-card p-4 rounded-xl">
                 <div class="font-mono text-2xl font-bold text-white">32 Mbps</div>
@@ -167,75 +170,72 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- 5-SECOND LIVE SANDBOX DEMO (REAL DROPZONE & COMPARISON)           -->
+    <!-- REAL 5-SECOND VIDEO PREVIEW SANDBOX (LOOPING & INTERACTIVE)       -->
     <!-- ================================================================= -->
     <section id="sandbox" class="relative z-10 py-16 bg-[#090f1d] border-y border-white/[0.08] px-4 sm:px-6">
         <div class="max-w-4xl mx-auto">
             <div class="text-center mb-8">
-                <span class="text-xs font-bold text-[#fd5d5d] uppercase tracking-wider bg-[#fd5d5d]/10 px-3 py-1 rounded-full border border-[#fd5d5d]/20">Live Interactive Sandbox</span>
-                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mt-2">Test the 5-Second Super-Resolution Engine</h2>
-                <p class="text-slate-400 text-xs sm:text-sm mt-1.5 max-w-md mx-auto">Drop any short clip or photo below to inspect real-time reconstruction before unlocking full length.</p>
+                <span class="text-xs font-bold text-[#fd5d5d] uppercase tracking-wider bg-[#fd5d5d]/10 px-3 py-1 rounded-full border border-[#fd5d5d]/20">Strict 5-Second Sandbox</span>
+                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mt-2">Live 5-Second Video & Motion Demonstration</h2>
+                <p class="text-slate-400 text-xs sm:text-sm mt-1.5 max-w-md mx-auto">Watch this real 5-second clip loop with the split slider. Drag any video file below to test your own clip.</p>
             </div>
 
-            <!-- Sandbox Interactive Frame -->
+            <!-- Live 5-Second Interactive Video Frame -->
             <div class="bg-black/90 rounded-2xl p-4 sm:p-6 border border-white/10 shadow-2xl">
-                <div id="sandbox-viewport" class="relative overflow-hidden rounded-xl aspect-[16/9] max-h-[440px] flex items-center justify-center bg-slate-950 select-none">
+                <div id="sandbox-viewport" class="relative overflow-hidden rounded-xl aspect-[16/9] max-h-[440px] flex items-center justify-center bg-slate-950 select-none cursor-ew-resize">
                     
-                    <!-- Fallback / Simulated Interactive Split (Draggable) -->
-                    <div id="demo-split-container" class="relative w-full h-full overflow-hidden flex items-center justify-center">
-                        <!-- Left: Low-Res Raw Source -->
-                        <div class="absolute inset-0 flex items-center justify-center bg-slate-900">
-                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=35" alt="Raw Source" class="w-full h-full object-cover filter blur-[2px] brightness-90">
-                        </div>
+                    <!-- Left Layer: 5-Second Raw Video -->
+                    <video id="raw-video-demo" class="video-slider-layer filter blur-[1.5px] brightness-90" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" muted playsinline autoplay loop></video>
 
-                        <!-- Right: AI 4K Reconstructed -->
-                        <div id="demo-split-overlay" class="absolute inset-0 flex items-center justify-center overflow-hidden" style="clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);">
-                            <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=100" alt="Enhanced 4K" class="w-full h-full object-cover contrast-105">
-                        </div>
+                    <!-- Right Layer: 5-Second Enhanced Video (Clipped) -->
+                    <div id="enhanced-video-clip" class="absolute inset-0 overflow-hidden pointer-events-none" style="clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);">
+                        <video id="enhanced-video-demo" class="video-slider-layer contrast-110 saturate-105" src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" muted playsinline autoplay loop></video>
+                    </div>
 
-                        <!-- Draggable Divider Line -->
-                        <div id="demo-split-handle" class="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_12px_rgba(0,0,0,0.9)] pointer-events-none" style="left: 50%;">
-                            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#fd5d5d] text-white shadow-lg flex items-center justify-center text-[10px] font-bold">
-                                ◀▶
-                            </div>
+                    <!-- Split Handle -->
+                    <div id="video-split-handle" class="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_12px_rgba(0,0,0,0.9)] pointer-events-none" style="left: 50%;">
+                        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-[#fd5d5d] text-white shadow-lg flex items-center justify-center text-[10px] font-bold">
+                            ◀▶
                         </div>
+                    </div>
 
-                        <!-- Badge Overlay -->
-                        <div class="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md text-white text-[10px] font-mono font-bold uppercase tracking-wider">
-                            Source (Raw)
-                        </div>
-                        <div class="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-[#2563eb] text-white text-[10px] font-mono font-bold uppercase tracking-wider">
-                            TJP Neural 4K
-                        </div>
+                    <!-- Header Badges -->
+                    <div class="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md text-white text-[10px] font-mono font-bold uppercase tracking-wider">
+                        Raw Video Source
+                    </div>
+                    <div class="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-[#2563eb] text-white text-[10px] font-mono font-bold uppercase tracking-wider">
+                        TJP Neural 4K Master
+                    </div>
+
+                    <!-- 5-Second Loop Indicator -->
+                    <div class="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-mono text-emerald-400 border border-emerald-500/20">
+                        ⏱️ Strict 5s Loop
                     </div>
                 </div>
 
-                <!-- Live Upload Trigger inside Sandbox -->
-                <div class="mt-5 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div class="text-xs text-slate-300">
-                        <span class="font-bold text-white block">Ready to enhance your own files?</span>
-                        <span class="text-slate-400">Open the full studio suite for unrestricted duration, 4K rendering, and lossless audio.</span>
-                    </div>
-                    <a href="index.html" class="w-full sm:w-auto btn-coral px-6 py-2.5 rounded-xl text-xs font-bold text-center">
-                        Launch Full Studio →
-                    </a>
+                <!-- DROPZONE: Drag & Drop personal file for 5-sec test -->
+                <div id="dropzone-box" class="mt-5 p-5 border-2 border-dashed border-white/20 hover:border-[#fd5d5d] rounded-xl text-center bg-white/[0.02] transition cursor-pointer">
+                    <input type="file" id="sandbox-file-input" accept="video/mp4, video/quicktime, video/webm" class="hidden">
+                    <div class="text-2xl mb-1.5">🎬</div>
+                    <div class="text-sm font-bold text-white">Drag & drop your own video to test the 5-second trial</div>
+                    <div class="text-xs text-slate-400 mt-1">Supports MP4, MOV, WebM. Automatically opens your 5-second preview in the studio.</div>
+                    <button type="button" onclick="document.getElementById('sandbox-file-input').click()" class="mt-3 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition">
+                        Select Video File
+                    </button>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- ================================================================= -->
-    <!-- 3-IN-1 SUITE SHOWCASE                                             -->
-    <!-- ================================================================= -->
+    <!-- 3-in-1 Suite Showcase -->
     <section id="suite" class="relative z-10 py-20 px-4 sm:px-6 max-w-5xl mx-auto">
         <div class="text-center mb-14">
             <span class="text-xs font-bold text-[#2563eb] uppercase tracking-wider bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">Unified Creative Suite</span>
             <h2 class="text-3xl sm:text-5xl font-extrabold text-white mt-2">Three World-Class Engines. One License.</h2>
-            <p class="text-slate-400 text-sm mt-2 max-w-md mx-auto">Stop paying 3 different companies for video, image, and voice software.</p>
+            <p class="text-slate-400 text-sm mt-2 max-w-md mx-auto">Stop paying three different companies for video, image, and voice software.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <!-- Suite 1: Video -->
             <div class="tilt-card rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                     <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-2xl mb-4">🎬</div>
@@ -250,7 +250,6 @@
                 </div>
             </div>
 
-            <!-- Suite 2: Image -->
             <div class="tilt-card rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                     <div class="w-12 h-12 rounded-xl bg-[#fd5d5d]/10 border border-[#fd5d5d]/20 flex items-center justify-center text-2xl mb-4">🖼️</div>
@@ -265,7 +264,6 @@
                 </div>
             </div>
 
-            <!-- Suite 3: Audio -->
             <div class="tilt-card rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                     <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-2xl mb-4">🎙️</div>
@@ -282,9 +280,7 @@
         </div>
     </section>
 
-    <!-- ================================================================= -->
-    <!-- VALUE COMPARISON MATRIX (HOW TJP CRUSHES COMPETITORS)             -->
-    <!-- ================================================================= -->
+    <!-- Cost Comparison Matrix -->
     <section id="savings" class="relative z-10 py-16 bg-[#090f1d] border-y border-white/[0.08] px-4 sm:px-6">
         <div class="max-w-4xl mx-auto">
             <div class="text-center mb-10">
@@ -334,9 +330,7 @@
         </div>
     </section>
 
-    <!-- ================================================================= -->
-    <!-- COMMERCIAL PRICING PLANS                                          -->
-    <!-- ================================================================= -->
+    <!-- Pricing Section -->
     <section id="pricing" class="relative z-10 py-20 px-4 sm:px-6 max-w-5xl mx-auto">
         <div class="text-center mb-14">
             <span class="text-xs font-bold text-[#fd5d5d] uppercase tracking-wider bg-[#fd5d5d]/10 px-3 py-1 rounded-full border border-[#fd5d5d]/20">Simple Memberships</span>
@@ -382,7 +376,7 @@
                         <li class="flex items-center gap-2 text-[#60a5fa] font-bold">✓ Unlimited 4K Video Super-Resolution</li>
                         <li class="flex items-center gap-2 text-[#60a5fa] font-bold">✓ Multi-Megapixel 8K Image Upscaler</li>
                         <li class="flex items-center gap-2 text-[#60a5fa] font-bold">✓ Studio Voice & Music Mastering</li>
-                        <li class="flex items-center gap-2">✓ Commercial Agency Rights</li>
+                        <li class="flex items-center gap-2 text-[#60a5fa] font-bold">✓ Commercial Agency Rights</li>
                         <li class="flex items-center gap-2">✓ Cancel Anytime with 1-Click</li>
                     </ul>
                 </div>
@@ -413,7 +407,6 @@
             </div>
         </div>
 
-        <!-- Trust Badges (PayPal + Cryptomus) -->
         <div class="mt-10 flex flex-wrap items-center justify-center gap-6 text-slate-400 text-xs font-semibold">
             <span class="flex items-center gap-1.5 text-slate-300">🔒 256-Bit SSL Encrypted</span>
             <span>•</span>
@@ -436,7 +429,7 @@
         </div>
     </footer>
 
-    <!-- Interactive Scripts: Spotlight cursor tracker & Split Slider -->
+    <!-- Interactive Scripts: Mouse spotlight, Synchronized 5-Second Loop, and File Drop Forwarder -->
     <script>
         // 1. Mouse Spotlight Tracker
         const spotlight = document.getElementById('spotlight-layer');
@@ -447,24 +440,39 @@
             spotlight.style.setProperty('--mouse-y', `${y}%`);
         });
 
-        // 2. Interactive Split Slider for Sandbox Demo
-        const splitBox = document.getElementById('demo-split-container');
-        const splitOverlay = document.getElementById('demo-split-overlay');
-        const splitHandle = document.getElementById('demo-split-handle');
+        // 2. Real Synchronized 5-Second Video Loop Clamping
+        const vRaw = document.getElementById('raw-video-demo');
+        const vEnh = document.getElementById('enhanced-video-demo');
 
-        if (splitBox && splitOverlay && splitHandle) {
+        if (vRaw && vEnh) {
+            const syncVideos = () => {
+                if (vRaw.currentTime >= 5.0) {
+                    vRaw.currentTime = 0.0;
+                    vEnh.currentTime = 0.0;
+                }
+            };
+            vRaw.addEventListener('timeupdate', syncVideos);
+            vEnh.addEventListener('timeupdate', syncVideos);
+        }
+
+        // 3. Interactive Split Slider for Video
+        const vBox = document.getElementById('sandbox-viewport');
+        const vOverlay = document.getElementById('enhanced-video-clip');
+        const vHandle = document.getElementById('video-split-handle');
+
+        if (vBox && vOverlay && vHandle) {
             let isDragging = false;
 
             const updateSplit = (clientX) => {
-                const rect = splitBox.getBoundingClientRect();
+                const rect = vBox.getBoundingClientRect();
                 const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
                 const pct = (x / rect.width) * 100;
-                splitHandle.style.left = `${pct}%`;
-                splitOverlay.style.clipPath = `polygon(${pct}% 0, 100% 0, 100% 100%, ${pct}% 100%)`;
+                vHandle.style.left = `${pct}%`;
+                vOverlay.style.clipPath = `polygon(${pct}% 0, 100% 0, 100% 100%, ${pct}% 100%)`;
             };
 
-            splitBox.addEventListener('mousedown', () => isDragging = true);
-            splitBox.addEventListener('touchstart', () => isDragging = true, { passive: true });
+            vBox.addEventListener('mousedown', () => isDragging = true);
+            vBox.addEventListener('touchstart', () => isDragging = true, { passive: true });
 
             window.addEventListener('mouseup', () => isDragging = false);
             window.addEventListener('touchend', () => isDragging = false);
@@ -477,6 +485,56 @@
                 if (!isDragging) return;
                 updateSplit(e.touches[0].clientX);
             }, { passive: true });
+        }
+
+        // 4. File Drop Forwarder (Passes uploaded video to Studio 5-sec trial)
+        const dropzone = document.getElementById('dropzone-box');
+        const fileInput = document.getElementById('sandbox-file-input');
+
+        function forwardFileToStudio(file) {
+            if (!file) return;
+
+            // Store file temporarily in IndexedDB for seamless pickup in index.html
+            const req = indexedDB.open('tjp_trial_store', 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains('files')) {
+                    db.createObjectStore('files');
+                }
+            };
+            req.onsuccess = (e) => {
+                const db = e.target.result;
+                const tx = db.transaction('files', 'readwrite');
+                tx.objectStore('files').put(file, 'pending_trial_video');
+                tx.oncomplete = () => {
+                    window.location.href = 'index.html?trial=5s';
+                };
+            };
+        }
+
+        if (fileInput) {
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    forwardFileToStudio(e.target.files[0]);
+                }
+            });
+        }
+
+        if (dropzone) {
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('border-[#fd5d5d]', 'bg-white/[0.05]');
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('border-[#fd5d5d]', 'bg-white/[0.05]');
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('border-[#fd5d5d]', 'bg-white/[0.05]');
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    forwardFileToStudio(e.dataTransfer.files[0]);
+                }
+            });
         }
     </script>
 </body>

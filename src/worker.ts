@@ -282,6 +282,8 @@ self.onmessage = function (event: MessageEvent<any>) {
           engineMode: event.data.engineMode || 'deep',
           profile: event.data.profile || 'photo',
           aiModel: event.data.aiModel,
+          family: event.data.family,
+          maxDuration: event.data.maxDuration,
           getPauseLock: () => pauseLock
         });
       });

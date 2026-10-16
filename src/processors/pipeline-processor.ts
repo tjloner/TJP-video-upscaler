@@ -28,6 +28,7 @@ interface ProcessorArgs {
   profile?: VideoProfilePreset;
   aiModel?: string;
   family?: 'sharpen' | 'detail';
+  maxDuration?: number;
   getPauseLock?: () => Promise<void> | null;
 }
 
@@ -126,15 +127,12 @@ async function getCalibratedEncoderConfig(width: number, height: number, framera
   let codecString = 'avc1.640032';
 
   if (totalPixels >= 7_000_000) {
-    // 4K Ultra HD (32 Mbps for pristine edge clarity)
     targetBitrate = requestedBitrate || 32_000_000;
     codecString = 'avc1.640034';
   } else if (totalPixels >= 3_000_000) {
-    // 2K Quad HD (20 Mbps)
     targetBitrate = requestedBitrate || 20_000_000;
     codecString = 'avc1.640034';
   } else if (totalPixels >= 1_800_000) {
-    // 1080p Full HD (14 Mbps)
     targetBitrate = requestedBitrate || 14_000_000;
     codecString = 'avc1.640032';
   } else {
@@ -182,6 +180,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     engineMode = 'deep',
     profile = 'photo',
     family,
+    maxDuration,
     getPauseLock 
   } = args;
 
@@ -207,7 +206,10 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     const videoDecoderConfig = await demuxer.getDecoderConfig('video');
     const audioConfig = audioTrack ? await demuxer.getDecoderConfig('audio') : null;
 
-    const duration = Number(videoTrack.duration) || 1.0;
+    // Strict duration clamp: if maxDuration is set, clamp the timeline
+    const rawDuration = Number(videoTrack.duration) || 1.0;
+    const duration = maxDuration ? Math.min(maxDuration, rawDuration) : rawDuration;
+
     const [fpsNum, fpsDen] = (videoTrack.r_frame_rate || '24/1').split('/').map(Number);
     const nominalFps = fpsNum && fpsDen ? fpsNum / fpsDen : 24.0;
     const expectedFrameCount = Math.round(duration * nominalFps);
@@ -227,7 +229,6 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
       calculatedHeight = isPortrait ? Math.round(targetShort * aspect) : targetShort;
     }
 
-    // Hardware Clamp (Never exceed 3840px in any dimension)
     if (calculatedWidth > 3840 || calculatedHeight > 3840) {
       const clampRatio = Math.min(3840 / calculatedWidth, 3840 / calculatedHeight);
       calculatedWidth = Math.floor(calculatedWidth * clampRatio);
@@ -249,7 +250,6 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
 
     const exportCanvas = new OffscreenCanvas(outWidth, outHeight);
 
-    // True High-Fidelity Model Selection: Detail uses 24-layer U-Net, Sharpen uses Anime4K CNN
     const isDetailMode = family === 'detail' || profile === 'photo' || profile === 'portrait';
     const { networkName, weights } = await loadExportWeights(isDetailMode);
 
@@ -350,6 +350,12 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
           notifyProducer = null;
         }
 
+        // Strict frame count clamp: stop when reaching maxDuration
+        if (outputFramesEncoded >= expectedFrameCount) {
+          currentFrame.close();
+          break;
+        }
+
         // WebGPU Neural Reconstruction
         await dedicatedWebSR.render(currentFrame as any);
 
@@ -390,6 +396,11 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     while (true) {
       if (decoderError) throw decoderError;
 
+      // Stop demuxing once we have read enough frames for maxDuration
+      if (maxDuration && inputFramesDecoded >= expectedFrameCount + 4) {
+        break;
+      }
+
       while (frameQueue.length >= 2) {
         await new Promise<void>((resolve) => {
           notifyProducer = resolve;
@@ -412,7 +423,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
     await encoder.flush();
     encoder.close();
 
-    // Preserve Lossless Audio Passthrough
+    // Preserve Lossless Audio Passthrough (clamped to maxDuration)
     let audioDurationSec = 0;
     if (audioConfig && audioSource) {
       const audioReader = demuxer.read('audio', 0).getReader();
@@ -421,6 +432,10 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
         const { done, value } = await audioReader.read();
         if (done) break;
         if (value.timestamp >= 0) {
+          const timeSec = value.timestamp / 1_000_000;
+          if (maxDuration && timeSec > maxDuration) {
+            break;
+          }
           audioDurationSec = Math.max(audioDurationSec, (value.timestamp + (value.duration || 0)) / 1_000_000);
           await audioSource.add(EncodedPacket.fromEncodedChunk(value), configSent ? undefined : { decoderConfig: audioConfig });
           configSent = true;
@@ -446,6 +461,7 @@ export default async function pipelineProcessor(args: ProcessorArgs): Promise<vo
         : `Sharpen High-Fidelity Engine (${networkName})`,
       stagesExecuted: [
         isDetailMode ? '24-Layer Deep U-Net Sub-Pixel Reconstruction' : 'Anime4K High-Frequency Edge Synthesis',
+        maxDuration ? `Strict ${maxDuration}-Second Trial Clip Cutoff` : 'Full Duration 1:1 Timeline Master',
         'Direct WebGPU Hardware Texture Pipeline',
         'Strict 1:1 Frame Lock-Step Integrity',
         'Lossless Audio Stream Passthrough',

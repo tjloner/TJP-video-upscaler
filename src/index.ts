@@ -121,6 +121,9 @@ async function index(): Promise<void> {
     
     window.chooseFile = chooseFile;
     window.switchAppMode = switchAppMode;
+
+    // Pick up pending trial video dropped on landing.html
+    checkAndLoadPendingTrialVideo();
     window.chooseImageFile = chooseImageFile;
     window.chooseAudioFile = chooseAudioFile;
     window.updateAudioMode = (mode: 'voice' | 'music') => {
@@ -287,14 +290,27 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
             });
         }
 
+        const isProUser = Boolean((Alpine as any).store('isPro'));
         const dur = video.duration || 10;
-        const snapTimes = [
+        
+        // Strict 5-second clamp for trial/guest users
+        const effectiveDuration = isProUser ? dur : Math.min(5.0, dur);
+
+        const snapTimes = isProUser ? [
             Math.min(1.8, Math.max(0.8, dur * 0.15)),
             Math.min(dur * 0.35, Math.max(1.0, dur - 0.5)),
             Math.min(dur * 0.55, Math.max(1.5, dur - 0.5)),
             Math.min(dur * 0.75, Math.max(2.0, dur - 0.5)),
             Math.min(dur * 0.90, Math.max(2.5, dur - 0.5))
-        ];
+        ] : [1.0, 2.0, 3.0, 4.0, 5.0];
+
+        // Enforce 5-second loop on playback for trial users
+        video.ontimeupdate = () => {
+            const isProActive = Boolean((Alpine as any).store('isPro'));
+            if (!isProActive && video.currentTime >= 5.0) {
+                video.currentTime = 0.0;
+            }
+        };
 
         const snapshots = [
             { time: snapTimes[0], label: formatTime(snapTimes[0]) },
@@ -444,6 +460,8 @@ worker.onmessage = function (event: MessageEvent<any>) {
 };
 
 async function initRecording(): Promise<void> {
+    const isProUser = Boolean((Alpine as any).store('isPro'));
+
     Alpine.store('state', 'loading');
     await requestScreenWakeLock();
 
@@ -454,7 +472,11 @@ async function initRecording(): Promise<void> {
     const currentFamily = (Alpine.store('videoFamily') as VideoModelFamily) || 'detail';
     const profile: VideoProfilePreset = currentFamily === 'detail' ? 'photo' : 'text';
 
-    const estimated_size = (activeOpt.bitrate / 8) * video.duration + (128 / 8) * video.duration;
+    // Strict 5-second max duration clamp for trial users
+    const maxDuration = isProUser ? undefined : 5.0;
+    const effectiveDur = isProUser ? video.duration : Math.min(5.0, video.duration);
+
+    const estimated_size = (activeOpt.bitrate / 8) * effectiveDur + (128 / 8) * effectiveDur;
     let outputHandle: FileSystemFileHandle | undefined;
 
     if (estimated_size > MAX_FILE_BLOB_SIZE) {
@@ -475,8 +497,41 @@ async function initRecording(): Promise<void> {
         targetScale: activeOpt.scale,
         targetBitrate: activeOpt.bitrate,
         engineMode: engineMode,
-        profile: profile
+        profile: profile,
+        family: currentFamily,
+        maxDuration: maxDuration
     } as any);
+}
+
+// Automatically pulls pending video dropped on landing.html
+function checkAndLoadPendingTrialVideo(): void {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.has('trial')) return;
+
+    const req = indexedDB.open('tjp_trial_store', 1);
+    req.onsuccess = (e) => {
+        const db = (e.target as any).result;
+        if (!db.objectStoreNames.contains('files')) return;
+
+        const tx = db.transaction('files', 'readwrite');
+        const store = tx.objectStore('files');
+        const getReq = store.get('pending_trial_video');
+
+        getReq.onsuccess = async () => {
+            const file = getReq.result;
+            if (file instanceof File || file instanceof Blob) {
+                store.delete('pending_trial_video');
+                
+                download_name = (file instanceof File ? file.name.split('.')[0] : 'trial') + "-TJP-5SEC-ENHANCED.mp4";
+                Alpine.store('download_name', download_name);
+                Alpine.store('filename', file instanceof File ? file.name : 'trial_video.mp4');
+                Alpine.store('state', 'loading');
+
+                const arrayBuffer = await file.arrayBuffer();
+                await setupPreview(arrayBuffer);
+            }
+        };
+    };
 }
 
 // ============================================================================
