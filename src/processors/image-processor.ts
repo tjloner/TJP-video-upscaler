@@ -18,8 +18,8 @@ function normalizeWeights(w: any): any {
 }
 
 async function getModelWeights(preset: ImageModelPreset): Promise<{ networkName: string; weights: any }> {
-  // Ultra, Photo, and Portrait use the 24-layer U-Net model
-  if (preset === 'ultra' || preset === 'photo' || preset === 'portrait') {
+  // Ultra, Photo, Portrait, and complex artwork use the high-clarity 24-layer U-Net model
+  if (preset === 'ultra' || preset === 'photo' || preset === 'portrait' || preset === 'anime') {
     if (cachedUnetWeights) {
       return { networkName: 'katana/unet-u24', weights: cachedUnetWeights };
     }
@@ -33,12 +33,11 @@ async function getModelWeights(preset: ImageModelPreset): Promise<{ networkName:
     } catch (e) {
       console.warn("[TJP Image]: unet-u24.bin fetch note, using fallback:", e);
     }
-    // Bundled fallback (Real-Life photographic weights)
     const rawRL = require('../weights/cnn-2x-l-rl.json');
     return { networkName: 'anime4k/cnn-2x-l', weights: normalizeWeights(rawRL) };
   }
 
-  // Anime and Text presets use line-thinning Anime4K model
+  // Text preset uses Anime4K line-refinement model
   const rawAN = require('../weights/cnn-2x-l-an.json');
   return { networkName: 'anime4k/cnn-2x-l', weights: normalizeWeights(rawAN) };
 }
@@ -51,7 +50,7 @@ export async function upscaleImage(
   const inHeight = imageSource.height;
   const scale = options.scale;
 
-  options.onProgress?.('processing', 15, 'Initializing WebGPU Device...');
+  options.onProgress?.('processing', 15, 'Initializing WebGPU Core...');
 
   const gpu = await WebSR.initWebGPU();
   if (!gpu) {
@@ -60,7 +59,7 @@ export async function upscaleImage(
 
   const { networkName, weights } = await getModelWeights(options.preset);
 
-  options.onProgress?.('processing', 35, `Running Neural Super-Resolution (${networkName})...`);
+  options.onProgress?.('processing', 30, `Running Deep Super-Resolution (${networkName})...`);
 
   // Stage 1: Native 2x Neural Super-Resolution
   const pass1Width = inWidth * 2;
@@ -78,46 +77,38 @@ export async function upscaleImage(
   try {
     await websrPass1.render(imageSource as any, (done: number, total: number) => {
       if (total > 1) {
-        const pct = Math.round(35 + (done / total) * 35);
-        options.onProgress?.('processing', pct, `Tiled Reconstruction: ${done}/${total} patches`);
+        const pct = Math.round(30 + (done / total) * 40);
+        options.onProgress?.('processing', pct, `Neural Reconstruction: ${done}/${total} tiles`);
       }
     });
 
-    // Await GPU execution flush
     if (gpu.queue) {
       try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
     }
 
-    options.onProgress?.('processing', 75, 'Composing target resolution...');
+    options.onProgress?.('processing', 75, 'Synthesizing Sub-Pixel Clarity...');
 
-    // Stage 2: Target Dimension Scaling (if 4x requested)
-    let finalCanvas: OffscreenCanvas = canvasPass1;
     const targetWidth = inWidth * scale;
     const targetHeight = inHeight * scale;
 
-    if (scale === 4) {
-      const canvasPass2 = new OffscreenCanvas(targetWidth, targetHeight);
-      const ctx2 = canvasPass2.getContext('2d', { willReadFrequently: true });
-      if (!ctx2) throw new Error("Could not create 2D canvas context");
+    // Compose final high-clarity canvas
+    const finalCanvas = new OffscreenCanvas(targetWidth, targetHeight);
+    const ctx = finalCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error("Could not create 2D canvas context");
 
-      ctx2.imageSmoothingEnabled = true;
-      ctx2.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
-      const pass1Bitmap = await createImageBitmap(canvasPass1);
-      ctx2.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
-      pass1Bitmap.close();
+    const pass1Bitmap = await createImageBitmap(canvasPass1);
+    ctx.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
+    pass1Bitmap.close();
 
-      // High-frequency detail synthesis on edges (only on canvases <= 4096 to prevent memory freeze)
-      if (targetWidth <= 4096 && targetHeight <= 4096) {
-        applyStructuralSharpening(ctx2, targetWidth, targetHeight, options.preset);
-      }
+    // High-Clarity Adaptive Detail Enhancement
+    options.onProgress?.('processing', 88, 'Enhancing Micro-Textures & Edges...');
+    applyHighClarityEnhancement(ctx, targetWidth, targetHeight, options.preset);
 
-      finalCanvas = canvasPass2;
-    }
+    options.onProgress?.('processing', 96, 'Exporting Lossless PNG...');
 
-    options.onProgress?.('processing', 95, 'Exporting Lossless PNG...');
-
-    // Clean export to PNG Blob
     if (typeof (finalCanvas as any).convertToBlob === 'function') {
       return await (finalCanvas as any).convertToBlob({ type: 'image/png' });
     }
@@ -139,12 +130,12 @@ export async function upscaleImage(
       }, 'image/png');
     });
   } finally {
-    // Free GPU buffers and textures
     try { await websrPass1.destroy(); } catch (e) {}
   }
 }
 
-function applyStructuralSharpening(
+// Fast, high-clarity edge and micro-texture recovery
+function applyHighClarityEnhancement(
   ctx: OffscreenCanvasRenderingContext2D,
   w: number,
   h: number,
@@ -152,40 +143,40 @@ function applyStructuralSharpening(
 ): void {
   try {
     const imgData = ctx.getImageData(0, 0, w, h);
-    const d = imgData.data;
-    const copy = new Uint8ClampedArray(d);
+    const data = imgData.data;
 
-    const gain = preset === 'text' ? 0.70 : (preset === 'anime' ? 0.55 : 0.35);
+    // Fast convolution kernel tuned for razor-sharp clarity
+    const amount = preset === 'text' ? 0.45 : preset === 'anime' ? 0.35 : 0.28;
+    const stride = w * 4;
 
-    // Fast 3x3 Laplacian edge enhancement
-    for (let y = 1; y < h - 1; y += 2) {
-      for (let x = 1; x < w - 1; x += 2) {
-        const idx = (y * w + x) * 4;
+    // Step by 1 pixel with direct clamp for crisp boundaries
+    for (let y = 1; y < h - 1; y++) {
+      const rowOffset = y * stride;
+      for (let x = 1; x < w - 1; x++) {
+        const idx = rowOffset + (x * 4);
 
-        const lumaC = 0.299 * copy[idx] + 0.587 * copy[idx + 1] + 0.114 * copy[idx + 2];
-        const idxN = ((y - 1) * w + x) * 4;
-        const idxS = ((y + 1) * w + x) * 4;
-        const idxW = (y * w + (x - 1)) * 4;
-        const idxE = (y * w + (x + 1)) * 4;
+        // Center luma vs 4-directional neighborhood
+        const curR = data[idx];
+        const curG = data[idx + 1];
+        const curB = data[idx + 2];
 
-        const lumaN = 0.299 * copy[idxN] + 0.587 * copy[idxN + 1] + 0.114 * copy[idxN + 2];
-        const lumaS = 0.299 * copy[idxS] + 0.587 * copy[idxS + 1] + 0.114 * copy[idxS + 2];
-        const lumaW = 0.299 * copy[idxW] + 0.587 * copy[idxW + 1] + 0.114 * copy[idxW + 2];
-        const lumaE = 0.299 * copy[idxE] + 0.587 * copy[idxE + 1] + 0.114 * copy[idxE + 2];
+        const avgR = (data[idx - 4] + data[idx + 4] + data[idx - stride] + data[idx + stride]) >> 2;
+        const avgG = (data[idx - 4 + 1] + data[idx + 4 + 1] + data[idx - stride + 1] + data[idx + stride + 1]) >> 2;
+        const avgB = (data[idx - 4 + 2] + data[idx + 4 + 2] + data[idx - stride + 2] + data[idx + stride + 2]) >> 2;
 
-        const lap = 4 * lumaC - (lumaN + lumaS + lumaW + lumaE);
+        const diffR = curR - avgR;
+        const diffG = curG - avgG;
+        const diffB = curB - avgB;
 
-        if (Math.abs(lap) > 6) {
-          const delta = Math.max(-40, Math.min(40, lap * gain));
-          d[idx] = Math.min(255, Math.max(0, copy[idx] + delta));
-          d[idx + 1] = Math.min(255, Math.max(0, copy[idx + 1] + delta));
-          d[idx + 2] = Math.min(255, Math.max(0, copy[idx + 2] + delta));
-        }
+        // Apply high-frequency boost
+        data[idx] = Math.min(255, Math.max(0, curR + (diffR * amount)));
+        data[idx + 1] = Math.min(255, Math.max(0, curG + (diffG * amount)));
+        data[idx + 2] = Math.min(255, Math.max(0, curB + (diffB * amount)));
       }
     }
 
     ctx.putImageData(imgData, 0, 0);
   } catch (e) {
-    console.warn("[TJP Image]: Edge sharpening note:", e);
+    console.warn("[TJP Image]: Clarity enhancement note:", e);
   }
 }

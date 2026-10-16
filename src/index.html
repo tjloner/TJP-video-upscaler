@@ -341,11 +341,22 @@ class="min-h-screen flex flex-col justify-between antialiased">
                         <!-- 1:1 CROP PATCH VIEWPORT WITH MINIMAP -->
                         <div class="w-full split-slider-box flex justify-center items-center overflow-hidden relative" style="height: 440px;">
                             
-                            <!-- 2X ZOOM & CONTROLS TOOLBAR -->
+                            <!-- 2X ZOOM & CONTROLS TOOLBAR (CLICKABLE BUTTON) -->
                             <div class="absolute top-3 right-3 z-40 flex items-center gap-2">
-                                <span class="bg-black/70 backdrop-blur-md text-white text-[10px] font-mono px-2 py-1 rounded-md border border-white/10">
-                                    1:1 Pixel Inspection
-                                </span>
+                                <button type="button" 
+                                        @click="toggleZoomMode()"
+                                        class="bg-black/80 hover:bg-black backdrop-blur-md text-white text-[10px] font-mono font-bold px-2.5 py-1 rounded-md border border-white/20 shadow-md transition-all flex items-center gap-1.5"
+                                        style="cursor: pointer !important; pointer-events: auto !important;">
+                                    <span x-text="$store.isZoomed ? '🔍 Fit Full View' : '🔍 1:1 Pixel Inspection'">1:1 Pixel Inspection</span>
+                                </button>
+                            </div>
+
+                            <!-- PREVIEW LOADING SPINNER (Visual feedback like original site) -->
+                            <div x-show="$store.previewLoading" 
+                                 class="absolute inset-0 bg-black/50 backdrop-blur-[2px] z-30 flex flex-col items-center justify-center pointer-events-none transition-opacity"
+                                 style="display: none;">
+                                <div class="animate-spin rounded-full h-9 w-9 border-2 border-white/20 border-t-[#5145cd] mb-2"></div>
+                                <span class="text-white text-[11px] font-mono font-bold tracking-wider">Rendering AI Frame...</span>
                             </div>
 
                             <!-- Native 1:1 Canvas Player Frame -->
