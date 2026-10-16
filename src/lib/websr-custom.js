@@ -1295,9 +1295,12 @@ const WebSR = (() => {
             width: Math.max(1, Math.round((0, a.getSourceWidth)(t) / i)),
             height: Math.max(1, Math.round((0, a.getSourceHeight)(t) / i))
           };
-          if (!this.initialized) {
-            this.planTiles(r.width, r.height);
+          if (!this.initialized || !this.canvasResolution || this.canvasResolution.width !== r.width || this.canvasResolution.height !== r.height) {
             this.canvasResolution = r;
+            if (this.context) {
+              this.context.cleanup();
+            }
+            this.planTiles(r.width, r.height);
             this.initialize();
           }
           if (this.pendingCalibration) {
@@ -1394,7 +1397,7 @@ const WebSR = (() => {
       e.MAX_THUMBNAILS = e.THUMB = void 0;
       e.thumbShader = o;
       e.foldShader = function (t) {
-        return `${t ? "enable f16;\n" : ""}struct P { len: u32, banks: u32, _a: u32, _b: u32 }\n@group(0) @binding(0) var banks: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> out: array<${t ? "vec4<f16>" : "vec4f"}>;\n@group(0) @binding(2) var<uniform> p: P;\n@group(0) @binding(3) var<uniform> alpha: array<vec4f, 2>;\n\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n    let i = gid.x;\n    if (i >= p.len) { return; }\n    var acc = vec4f(0.0);\n    for (var b = 0u; b < p.banks; b = b + 1u) {\n        acc = acc + alpha[b / 4u][b % 4u] * banks[b * p.len + i];\n    }\n    out[i] = ${t ? "vec4<f16>(acc)" : "acc"};\n}`;
+        return `${t ? "enable f16;\n" : ""}struct P { len: u32, banks: u32, _a: u32, _b: u32 }\n@group(0) @binding(0) var<storage, read> banks: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> out: array<${t ? "vec4<f16>" : "vec4f"}>;\n@group(0) @binding(2) var<uniform> p: P;\n@group(0) @binding(3) var<uniform> alpha: array<vec4f, 2>;\n\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n    let i = gid.x;\n    if (i >= p.len) { return; }\n    var acc = vec4f(0.0);\n    for (var b = 0u; b < p.banks; b = b + 1u) {\n        acc = acc + alpha[b / 4u][b % 4u] * banks[b * p.len + i];\n    }\n    out[i] = ${t ? "vec4<f16>(acc)" : "acc"};\n}`;
       };
       e.THUMB = 32;
       const s = 3 * e.THUMB * e.THUMB;
