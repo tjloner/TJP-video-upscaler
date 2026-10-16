@@ -56,6 +56,7 @@ declare global {
         startImageUpscale: () => Promise<void>;
         updateImageScale: (scale: number) => void;
         updateImagePreset: (preset: ImageModelPreset) => void;
+        updateAudioMode: (mode: 'voice' | 'music') => void;
         chooseAudioFile: (e?: Event) => Promise<void>;
     }
 }
@@ -99,6 +100,7 @@ async function index(): Promise<void> {
     Alpine.store('imageProgress', 0);
 
     Alpine.store('audioState', 'init');
+    Alpine.store('audioMode', 'voice' as 'voice' | 'music');
     Alpine.store('audioFileName', '');
     Alpine.store('audioDuration', '');
     Alpine.store('audioDownloadUrl', '');
@@ -121,6 +123,9 @@ async function index(): Promise<void> {
     window.switchAppMode = switchAppMode;
     window.chooseImageFile = chooseImageFile;
     window.chooseAudioFile = chooseAudioFile;
+    window.updateAudioMode = (mode: 'voice' | 'music') => {
+        Alpine.store('audioMode', mode);
+    };
     window.startImageUpscale = triggerInstantImageEnhance;
     window.updateImageScale = async (scale: number) => {
         Alpine.store('imageScale', scale);
@@ -580,8 +585,11 @@ async function chooseAudioFile(e?: Event): Promise<void> {
         if (window.showOpenFilePicker) {
             const [fileHandle] = await window.showOpenFilePicker({
                 types: [{
-                    description: 'Audio Files',
-                    accept: { 'audio/*': ['.mp3', '.wav', '.m4a', '.aac'] }
+                    description: 'Audio or Video Files',
+                    accept: {
+                        'audio/*': ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'],
+                        'video/*': ['.mp4', '.mov', '.webm', '.mkv']
+                    }
                 }],
                 multiple: false
             });
@@ -590,7 +598,7 @@ async function chooseAudioFile(e?: Event): Promise<void> {
         } else {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = 'audio/mp3, audio/wav, audio/m4a, audio/aac';
+            input.accept = 'audio/*, video/mp4, video/quicktime, video/webm, .mp4, .mov, .webm, .m4a, .mp3, .wav, .aac';
             input.onchange = async () => {
                 if (input.files && input.files[0]) {
                     await setupAudioFile(input.files[0]);
@@ -604,12 +612,15 @@ async function chooseAudioFile(e?: Event): Promise<void> {
 }
 
 async function setupAudioFile(file: File): Promise<void> {
+    const mode = (Alpine.store('audioMode') as 'voice' | 'music') || 'voice';
     Alpine.store('audioState', 'processing');
     Alpine.store('audioFileName', file.name);
-    Alpine.store('audioDownloadName', file.name.split('.')[0] + "-TJP-STUDIO-MASTER.wav");
+    const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    const suffix = mode === 'music' ? '-TJP-MUSIC-MASTER.wav' : '-TJP-STUDIO-VOICE.wav';
+    Alpine.store('audioDownloadName', baseName + suffix);
 
     try {
-        const result = await enhanceAudioFile(file, {}, (progress, stage) => {
+        const result = await enhanceAudioFile(file, { mode }, (progress, stage) => {
             Alpine.store('audioProgress', progress);
             Alpine.store('audioProgressMessage', stage);
         });

@@ -721,30 +721,61 @@ class="min-h-screen flex flex-col justify-between antialiased">
         </div>
 
         <!-- ================================================================= -->
-        <!-- TAB 3: 🎙️ AI AUDIO / VOICE ENHANCER                               -->
+        <!-- TAB 3: 🎙️ AI AUDIO / VOICE & MUSIC ENHANCER                       -->
         <!-- ================================================================= -->
         <div x-show="$store.appMode === 'audio'">
             
             <div class="tjp-card p-8 sm:p-12 text-center max-w-xl mx-auto" x-show="$store.audioState === 'init'">
+                
+                <!-- Enhancement Mode Selector (Voice vs Music) -->
+                <div class="flex justify-center mb-6">
+                    <div class="output-seg">
+                        <button type="button" 
+                                class="output-seg-btn flex items-center gap-1.5"
+                                :class="{ 'active': $store.audioMode === 'voice' }"
+                                @click="updateAudioMode('voice')">
+                            <span>🎙️</span> Voice & Speech
+                        </button>
+                        <button type="button" 
+                                class="output-seg-btn flex items-center gap-1.5"
+                                :class="{ 'active': $store.audioMode === 'music' }"
+                                @click="updateAudioMode('music')">
+                            <span>🎵</span> Music & Song
+                        </button>
+                    </div>
+                </div>
+
                 <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 flex items-center justify-center mb-6 border border-indigo-100">
                     <svg class="w-8 h-8 text-[#5145cd]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                     </svg>
                 </div>
-                <h2 class="text-2xl font-bold text-gray-900 mb-2">Enhance Voice & Speech Audio</h2>
-                <p class="text-gray-500 text-sm mb-8 max-w-md mx-auto">
-                    Remove background noise, eliminate room echo, and apply broadcast vocal warmth directly in your browser. Supports MP3, WAV, M4A, and AAC.
+
+                <h2 class="text-2xl font-bold text-gray-900 mb-2" 
+                    x-text="$store.audioMode === 'music' ? 'Studio Music & Song Mastering' : 'Enhance Voice & Speech Audio'">
+                </h2>
+                
+                <p class="text-gray-500 text-sm mb-8 max-w-md mx-auto"
+                   x-text="$store.audioMode === 'music' 
+                    ? 'Sub-bass punch, 3D stereo widening, and streaming loudness mastering. Supports songs, beats, and video music tracks.'
+                    : 'Remove background noise, eliminate room echo, and apply broadcast vocal warmth. Supports podcasts, dialogue, and videos.'">
                 </p>
+
                 <button type="button" class="btn-tjp-primary w-full sm:w-auto px-8 py-3.5 text-base shadow-lg" onclick="chooseAudioFile(this)">
-                    Choose Audio File
+                    Choose File (Video or Audio)
                 </button>
+                <div class="text-[11px] text-gray-400 mt-3 font-mono">
+                    Supports MP4, MOV, WebM, MP3, WAV, M4A, AAC
+                </div>
             </div>
 
             <!-- Audio Processing Spinner -->
             <div class="tjp-card p-10 flex flex-col justify-center items-center text-center max-w-xl mx-auto" x-show="$store.audioState === 'processing'">
                 <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-100 border-t-[#5145cd] mb-4"></div>
-                <h3 class="text-lg font-bold text-gray-800">Mastering Studio Voice Audio</h3>
-                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.audioProgressMessage || 'Applying multi-band vocal presence...'"></p>
+                <h3 class="text-lg font-bold text-gray-800" 
+                    x-text="$store.audioMode === 'music' ? 'Mastering Studio Music Track' : 'Mastering Studio Voice Audio'">
+                </h3>
+                <p class="text-gray-500 text-xs mt-1 max-w-sm font-mono" x-text="$store.audioProgressMessage || 'Applying multi-band studio processing...'"></p>
 
                 <div class="w-full max-w-xs bg-gray-100 h-2.5 rounded-full overflow-hidden mt-4 border border-gray-200">
                     <div class="h-full rounded-full transition-all duration-300 bg-[#5145cd]" :style="'width: ' + ($store.audioProgress || 15) + '%'"></div>
@@ -756,8 +787,14 @@ class="min-h-screen flex flex-col justify-between antialiased">
             <div class="tjp-card p-6 sm:p-8 shadow-xl max-w-2xl mx-auto" x-show="$store.audioState === 'complete'">
                 <div class="text-center mb-6">
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xl mx-auto mb-2">✓</div>
-                    <h3 class="text-xl font-bold text-gray-900 mb-1">Studio Vocal Enhancement Complete</h3>
-                    <p class="text-xs text-gray-400">Broadcast-mastered at 48kHz with room-reverb suppression and dynamic leveling.</p>
+                    <h3 class="text-xl font-bold text-gray-900 mb-1" 
+                        x-text="$store.audioMode === 'music' ? 'Studio Music Master Complete' : 'Studio Vocal Enhancement Complete'">
+                    </h3>
+                    <p class="text-xs text-gray-400" 
+                       x-text="$store.audioMode === 'music' 
+                        ? 'Mastered with 55Hz sub-bass punch, 3D stereo widening, and streaming loudness limiter.'
+                        : 'Broadcast-mastered at 48kHz with room-reverb suppression and dynamic leveling.'">
+                    </p>
                 </div>
 
                 <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-6">
@@ -771,12 +808,13 @@ class="min-h-screen flex flex-col justify-between antialiased">
 
                 <div class="space-y-3">
                     <a :href="$store.audioDownloadUrl" :download="$store.audioDownloadName" class="w-full block" x-show="$store.audioDownloadUrl">
-                        <button type="button" class="btn-tjp-primary w-full py-3.5 text-base shadow-lg">
-                            Download Enhanced Audio (WAV Master)
+                        <button type="button" class="btn-tjp-primary w-full py-3.5 text-base shadow-lg"
+                                x-text="$store.audioMode === 'music' ? 'Download Mastered Music Track (WAV)' : 'Download Enhanced Vocal Master (WAV)'">
+                            Download Mastered Audio (WAV)
                         </button>
                     </a>
                     <button type="button" class="btn-tjp-outline w-full py-2.5 text-xs font-bold" @click="$store.audioState = 'init'">
-                        Enhance Another Audio File
+                        Enhance Another File
                     </button>
                 </div>
             </div>
