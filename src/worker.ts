@@ -79,9 +79,16 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
   let networkName = 'katana/unet-u24';
 
   if (family === 'sharpen') {
-    fileName = 'cnn-8.bin';
-    networkName = 'anime4k/cnn-2x-l';
+    if (tier === 'fast') {
+      fileName = 'cnn-8.bin';
+      networkName = 'anime4k/cnn-2x-s';
+    } else {
+      // Balanced and Quality use the powerful 16-layer CNN network
+      fileName = 'cnn-16.bin';
+      networkName = 'anime4k/cnn-2x-16';
+    }
   } else {
+    // Detail mode uses native U-Net (katana/unet-u24)
     fileName = 'unet-u24.bin';
     networkName = 'katana/unet-u24';
   }
@@ -98,7 +105,7 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
     weightBuffers[fileName] = parsed;
     return { networkName, weights: parsed };
   } catch (err) {
-    console.warn(`[TJP Engine]: Loading normalized bundled weights for ${family}:`, err);
+    console.warn(`[TJP Engine]: Loading fallback bundled weights for ${family}:`, err);
     const rawBundle = family === 'detail'
       ? require('./weights/cnn-2x-l-rl.json')
       : require('./weights/cnn-2x-l-an.json');
@@ -168,7 +175,6 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
       }
     }
   } else if (modelChanged || sizeChanged) {
-    // Flush any pending GPU operations before tearing down or rebuilding pipelines
     if (gpu && gpu.queue) {
       try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
     }
