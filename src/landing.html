@@ -98,7 +98,7 @@
 
             <nav class="hidden md:flex items-center gap-8 text-xs font-bold uppercase tracking-wider text-slate-400">
                 <a href="#suite" class="hover:text-white transition">3-in-1 Suite</a>
-                <a href="#sandbox" class="hover:text-white transition">5-Sec Sandbox</a>
+                <a href="#inspector" class="hover:text-white transition">Quality Inspector</a>
                 <a href="#savings" class="hover:text-white transition">Value Matrix</a>
                 <a href="#pricing" class="hover:text-white transition">Pricing</a>
             </nav>
@@ -132,11 +132,11 @@
 
         <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
             <a href="index.html" class="w-full sm:w-auto btn-coral px-8 py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2">
-                <span>Launch Full Studio</span>
+                <span>Start 3-Day Pass</span>
                 <span>→</span>
             </a>
-            <a href="#sandbox" class="w-full sm:w-auto px-7 py-3.5 rounded-xl text-sm font-bold text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] transition">
-                Test 5-Second Trial
+            <a href="#inspector" class="w-full sm:w-auto px-7 py-3.5 rounded-xl text-sm font-bold text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-white/[0.08] transition">
+                Inspect Quality Demo
             </a>
         </div>
 
@@ -161,9 +161,9 @@
     </section>
 
     <!-- ================================================================= -->
-    <!-- REAL INTERACTIVE SANDBOX DEMO (ROCK-SOLID HIGH-RES SPLIT SLIDER)   -->
+    <!-- INTERACTIVE QUALITY INSPECTOR (ROCK-SOLID HIGH-RES SPLIT SLIDER) -->
     <!-- ================================================================= -->
-    <section id="sandbox" class="relative z-10 py-16 bg-[#090f1d] border-y border-white/[0.08] px-4 sm:px-6">
+    <section id="inspector" class="relative z-10 py-16 bg-[#090f1d] border-y border-white/[0.08] px-4 sm:px-6">
         <div class="max-w-4xl mx-auto">
             <div class="text-center mb-8">
                 <span class="text-xs font-bold text-[#fd5d5d] uppercase tracking-wider bg-[#fd5d5d]/10 px-3 py-1 rounded-full border border-[#fd5d5d]/20">Interactive Quality Inspector</span>
@@ -180,7 +180,7 @@
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=35" alt="Raw Source" class="w-full h-full object-cover filter blur-[2px] brightness-90">
                     </div>
 
-                    <!-- Right: AI 4K Reconstructed (Clipped with dynamic polygon) -->
+                    <!-- Right: AI 4K Reconstructed -->
                     <div id="demo-split-overlay" class="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none" style="clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);">
                         <img src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=100" alt="TJP AI Enhanced" class="w-full h-full object-cover contrast-105">
                     </div>
@@ -192,7 +192,7 @@
                         </div>
                     </div>
 
-                    <!-- Header Badges -->
+                    <!-- Badges -->
                     <div class="absolute top-3 left-3 px-2.5 py-1 rounded-md bg-black/80 backdrop-blur-md text-white text-[10px] font-mono font-bold uppercase tracking-wider">
                         Source (Raw 720p)
                     </div>
@@ -205,20 +205,20 @@
                     </div>
                 </div>
 
-                <!-- 5-SECOND TRIAL LAUNCH CARD (0% Memory Choke) -->
+                <!-- Call to Action Card -->
                 <div class="mt-5 p-6 border border-white/10 rounded-xl bg-gradient-to-r from-white/[0.03] to-white/[0.01] flex flex-col sm:flex-row items-center justify-between gap-5 text-center sm:text-left">
                     <div>
                         <div class="flex items-center justify-center sm:justify-start gap-2 mb-1">
                             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                            <span class="text-sm font-bold text-white">Test Your Own Video — 5-Second Trial Sandbox</span>
+                            <span class="text-sm font-bold text-white">Ready to enhance your media?</span>
                         </div>
                         <div class="text-xs text-slate-400 max-w-lg">
-                            Upload your video to test a clean, unwatermarked 5-second 4K preview directly on your graphics card. No account required.
+                            Experience full-resolution 4K WebGPU super-resolution directly on your graphics card. 100% private.
                         </div>
                     </div>
                     
-                    <a href="index.html?trial=5s" class="w-full sm:w-auto btn-coral px-7 py-3 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2 whitespace-nowrap shadow-lg">
-                        <span>Test My Video (5-Sec Trial)</span>
+                    <a href="index.html" class="w-full sm:w-auto btn-coral px-7 py-3 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-2 whitespace-nowrap shadow-lg">
+                        <span>Launch Studio Suite</span>
                         <span>→</span>
                     </a>
                 </div>
@@ -428,7 +428,7 @@
         </div>
     </footer>
 
-    <!-- Interactive Scripts: Mouse spotlight & Split Slider (Zero IndexedDB / 0% Crash) -->
+    <!-- Interactive Scripts: Mouse spotlight & Split Slider (Zero Memory Leaks / 0% Crash) -->
     <script>
         // 1. Mouse Spotlight Tracker
         const spotlight = document.getElementById('spotlight-layer');
