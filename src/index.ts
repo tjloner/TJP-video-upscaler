@@ -73,6 +73,7 @@ async function index(): Promise<void> {
     Alpine.store('videoTier', 'balanced' as VideoModelTier);
     Alpine.store('engineMode', 'deep');
     Alpine.store('proTipMessage', '');
+    Alpine.store('previewLoading', false);
     Alpine.store('isZoomed', false);
     Alpine.store('activeSnapshotTime', 0);
     Alpine.store('timelineSnapshots', [] as { time: number; label: string }[]);
@@ -136,6 +137,7 @@ async function index(): Promise<void> {
 
     window.selectVideoFamily = async (family: VideoModelFamily) => {
         Alpine.store('videoFamily', family);
+        Alpine.store('previewLoading', true);
         if (family === 'sharpen') {
             Alpine.store('proTipMessage', 'Sharpen mode: Restores crisp line boundaries (ideal for typography, anime, and logos).');
         } else {
@@ -147,6 +149,7 @@ async function index(): Promise<void> {
     window.selectVideoTier = async (tier: VideoModelTier) => {
         Alpine.store('videoTier', tier);
         Alpine.store('engineMode', tier === 'fast' ? 'fast' : 'deep');
+        Alpine.store('previewLoading', true);
         await updateLiveVideoPreview();
     };
 }
@@ -268,6 +271,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 playerFrame,
                 compareContainer,
                 onCropChange: async () => {
+                    Alpine.store('previewLoading', true);
                     await updateLiveVideoPreview();
                 }
             });
@@ -293,7 +297,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
         video.onseeked = async () => {
-            // Wait for video frame to paint into buffer
             if ('requestVideoFrameCallback' in video) {
                 await new Promise<void>(resolve => {
                     (video as any).requestVideoFrameCallback(() => resolve());
@@ -302,10 +305,10 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
                 await new Promise(r => setTimeout(r, 80));
             }
             if (patchController) patchController.renderMinimap();
+            Alpine.store('previewLoading', true);
             await updateLiveVideoPreview();
         };
 
-        // Seek to first snapshot
         video.currentTime = snapTimes[0];
 
         setTimeout(async () => {
@@ -318,6 +321,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         window.seekToTimestamp = function (timeSec: number) {
             if (Alpine.store('state') === 'processing') return;
             Alpine.store('activeSnapshotTime', timeSec);
+            Alpine.store('previewLoading', true);
             video.currentTime = timeSec;
         };
 
@@ -401,12 +405,15 @@ async function updateLiveVideoPreview(): Promise<void> {
         }
     } catch (e) {
         console.warn("[TJP Studio]: Frame capture error:", e);
+        Alpine.store('previewLoading', false);
     }
 }
 
 worker.onmessage = function (event: MessageEvent<any>) {
     if (event.data.cmd === 'isSupported') {
         if (!event.data.data) return showUnsupported("WebGPU API");
+    } else if (event.data.cmd === 'previewUpdated') {
+        Alpine.store('previewLoading', false);
     } else if (event.data.cmd === 'sourceReport') {
         Alpine.store('sourceReport', event.data.data);
     } else if (event.data.cmd === 'progress') {

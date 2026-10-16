@@ -813,7 +813,7 @@ const WebSR = (() => {
         }
         lazyLoadSetup() {
           const t = this.resolution.width;
-          this.shader = this.createStandardShader(`\n          @compute @workgroup_size(${this.num_work_groups}, ${this.num_work_groups})\n          fn main(@builtin(global_invocation_id) id: vec3<u32>) {\n                let x = id.x;\n                let y = id.y;\n                let pix_base = (y * ${t}u + x) * 4u;\n                for (var o = 0u; o < 4u; o++) {\n                    var result = vec4f(0.0);\n                    for (var i = 0u; i < 4u; i++) {\n                        let pix = inputBuffer0[pix_base + i];\n                        result += kernels[o * 4u + i] * max(pix, vec4f(0.0));\n                        result += kernels[16u + o * 4u + i] * max(-pix, vec4f(0.0));\n                    }\n                    result += bias[o];\n                    outputBuffer[pix_base + o] = result;\n                }\n          }\n        `);
+          this.shader = this.createStandardShader(`\n          @compute @workgroup_size(${this.num_work_groups}, ${this.num_work_groups}) fn main(@builtin(global_invocation_id) id: vec3<u32>) {\n                let x = id.x;\n                let y = id.y;\n                let pix_base = (y * ${t}u + x) * 4u;\n                for (var o = 0u; o < 4u; o++) {\n                    var result = vec4f(0.0);\n                    for (var i = 0u; i < 4u; i++) {\n                        let pix = inputBuffer0[pix_base + i];\n                        result += kernels[o * 4u + i] * max(pix, vec4f(0.0));\n                        result += kernels[16u + o * 4u + i] * max(-pix, vec4f(0.0));\n                    }\n                    result += bias[o];\n                    outputBuffer[pix_base + o] = result;\n                }\n          }\n        `);
           this.pipeline = this.device.createComputePipeline(this.defaultPipelineConfig());
           this.bindGroup = this.defaultBindGroup();
         }
@@ -1200,8 +1200,8 @@ const WebSR = (() => {
           var t;
           if (!this.processResolution || !this.canvasResolution) throw new Error("Cannot initialize without resolution");
           const e = null !== (t = this.params.outputResolution) && void 0 !== t ? t : { width: this.canvasResolution.width * this.scale, height: this.canvasResolution.height * this.scale };
-          this.canvas.width = e.width;
-          this.canvas.height = e.height;
+          if (this.canvas.width !== e.width) this.canvas.width = e.width;
+          if (this.canvas.height !== e.height) this.canvas.height = e.height;
           this.context = new n.default(this.params.gpu, this.processResolution, this.canvasResolution, this.canvas, this.scale, this.debug, e, this.params.precision);
           globalThis.context = this.context;
           

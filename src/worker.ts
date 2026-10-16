@@ -24,7 +24,6 @@ let renderChain: Promise<void> = Promise.resolve();
 
 const weightBuffers: Record<string, any> = {};
 
-// Normalizes weights so .layers is always present (eliminates undefined conv2d_tf crash)
 function normalizeWeights(weights: any): any {
   if (!weights) return null;
   if (weights.format === 'unet' || weights.layers) return weights;
@@ -79,16 +78,9 @@ async function loadModelWeights(family: 'sharpen' | 'detail', tier: 'fast' | 'ba
   let networkName = 'katana/unet-u24';
 
   if (family === 'sharpen') {
-    if (tier === 'fast') {
-      fileName = 'cnn-8.bin';
-      networkName = 'anime4k/cnn-2x-l';
-    } else {
-      // Balanced and Quality use the powerful 16-layer CNN network
-      fileName = 'cnn-16.bin';
-      networkName = 'anime4k/cnn-2x-16';
-    }
+    fileName = 'cnn-8.bin';
+    networkName = 'anime4k/cnn-2x-l';
   } else {
-    // Detail mode uses native U-Net (katana/unet-u24)
     fileName = 'unet-u24.bin';
     networkName = 'katana/unet-u24';
   }
@@ -184,7 +176,6 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
     currentTier = targetTier;
     currentNetwork = networkName;
 
-    // Only update canvas dimensions if size actually changed (prevents canvas clear)
     if (sizeChanged && upscaled_canvas) {
       upscaled_canvas.width = pw * 2;
       upscaled_canvas.height = ph * 2;
@@ -204,8 +195,10 @@ async function renderFrame(bitmap: ImageBitmap, targetFamily: 'sharpen' | 'detai
       await websr.render(bitmap as any);
       await gpu.queue.onSubmittedWorkDone();
       console.log(`[TJP Engine]: Frame presented on screen -> ${targetFamily.toUpperCase()} (${targetTier})`);
+      (postMessage as any)({ cmd: 'previewUpdated' });
     } catch (e) {
       console.error("[TJP Engine]: Render pass error:", e);
+      (postMessage as any)({ cmd: 'previewUpdated' });
     }
   }
 }
