@@ -49,6 +49,11 @@ module.exports = {
             inject: 'body',
             minify: false
         }),
+        new HtmlWebpackPlugin({
+      template: "./src/landing.html",
+      filename: "landing.html",
+      inject: false
+    }),
         new CopyWebpackPlugin({
             patterns: [
                 { from: "src/img/*.svg", to: "img/[name][ext]", noErrorOnMissing: true },
