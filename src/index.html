@@ -398,7 +398,7 @@ class="min-h-screen flex flex-col justify-between antialiased">
                                 </div>
                             </div>
 
-                            <!-- DRAGGABLE MINIMAP IN BOTTOM-LEFT CORNER (Exact like free.upscaler.video) -->
+                            <!-- DRAGGABLE MINIMAP IN BOTTOM-LEFT CORNER -->
                             <div id="patch-minimap-wrap" 
                                  class="absolute bottom-3 left-3 z-30 border-2 border-white/80 rounded-lg overflow-hidden bg-black shadow-lg cursor-crosshair leading-none">
                                 <canvas id="patch-minimap" class="block pointer-events-auto"></canvas>
@@ -445,7 +445,7 @@ class="min-h-screen flex flex-col justify-between antialiased">
                             </div>
                         </div>
 
-                        <!-- 1. AI MODEL FAMILY (Sharpen vs Detail - Match free.upscaler.video) -->
+                        <!-- 1. AI MODEL FAMILY (Sharpen vs Detail) -->
                         <div class="output-box">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center">
@@ -555,6 +555,67 @@ class="min-h-screen flex flex-col justify-between antialiased">
                 </div>
 
             </div>
+
+            <!-- SEO FAQ Section: AI Video Enhancer -->
+            <section class="mt-12 max-w-4xl mx-auto mb-10 px-2">
+                <div class="text-center mb-6">
+                    <span class="text-xs font-bold text-[#5145cd] uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">Video Engineering Knowledge Base</span>
+                    <h3 class="text-xl sm:text-2xl font-extrabold text-gray-900 mt-2">Frequently Asked Questions — AI Video Super-Resolution</h3>
+                </div>
+
+                <div class="space-y-3">
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm" open>
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>How does TJP Video Enhancer compare to cloud upscalers and desktop suites like Topaz?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Traditional cloud upscalers force you to upload large, private video files to remote servers, waiting in multi-hour render queues and risking client confidentiality. Heavy desktop suites require multi-gigabyte installations and expensive upfront licenses. TJP Studio runs directly inside your browser powered by hardware-accelerated WebGPU: your footage never leaves your machine (100% data privacy), there are zero upload queues, and you get instant 1:1 frame-accurate neural reconstruction directly on your local GPU.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>What is the difference between the "Sharpen" and "Detail" AI models?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            <strong>Detail Mode (24-Layer Generative U-Net):</strong> Reconstructs complex organic micro-textures—skin pores, individual hair strands, iris details, clothing weave, and cinematic backgrounds. Ideal for live-action cinema, documentary footage, interviews, and portraits.<br><br>
+                            <strong>Sharpen Mode (Deep Convolutional CNN):</strong> Specifically targets edge boundaries, typography, high-contrast outlines, and vector-like graphics. Ideal for anime, CGI, 2D animations, subtitles, logos, and retro gaming footage where clean geometry without ringing artifacts is required.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Does the video upscaler cause audio drift or drop frames during 4K export?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            No. TJP Studio utilizes a dedicated lock-step WebCodecs demuxing and encoding pipeline. Every single frame is synchronized with its original presentation timestamp (PTS). Audio is extracted and passed through losslessly without re-compression, guaranteeing 0.0ms audio/video sync drift even on long-duration exports.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Why does the export retain sharpness better than other web tools?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Most online tools crush upscaled video with aggressive compression to save bandwidth, turning sharp AI details into blurry pixel blocks. TJP Studio calibrates video bitrates up to 32 Mbps for 4K Ultra HD and utilizes high-profile AVC encoding, ensuring that the micro-textures synthesized by the neural network remain intact in your final downloaded MP4.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Who is this video tool built for?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Video editors, content creators, archiving specialists, commercial videographers, and agencies who need to upscale legacy 480p/720p/1080p clips to broadcast 4K without uploading confidential client raw footage to external cloud servers.
+                        </p>
+                    </details>
+                </div>
+            </section>
 
         </div>
 
@@ -718,6 +779,69 @@ class="min-h-screen flex flex-col justify-between antialiased">
 
             </div>
 
+            <!-- SEO FAQ Section: Neural Image Upscaler -->
+            <section class="mt-12 max-w-4xl mx-auto mb-10 px-2">
+                <div class="text-center mb-6">
+                    <span class="text-xs font-bold text-[#5145cd] uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">Super-Resolution Knowledge Base</span>
+                    <h3 class="text-xl sm:text-2xl font-extrabold text-gray-900 mt-2">Frequently Asked Questions — Neural Image Upscaling</h3>
+                </div>
+
+                <div class="space-y-3">
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm" open>
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>How does TJP Image Upscaler compare to tools like Remini, Upscayl, or Magnific?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Many consumer image upscalers suffer from two extremes: they either create a "plastic mannequin" over-smoothed look (destroying natural skin texture) or hallucinate strange, distorted artifacts. TJP Image Studio uses a balanced Sub-Pixel Generative U-Net architecture combined with hardware-accelerated adaptive edge clarity. It reconstructs authentic textures (fine hair, fabric weave, paper grain, stone edges) while preserving subject identity without artificial smoothing.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Can it handle multi-megapixel high-resolution images without crashing?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Yes. While cloud tools reject large file sizes or charge exorbitant credits per megapixel, TJP Studio features an intelligent Adaptive WebGPU Tiling System. It dynamically calculates your graphics card’s VRAM limits and stitches massive images (up to 8K and beyond) with zero browser freezing and zero memory leaks.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Which Enhancement Profile should I choose?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            <strong>Ultra AI / General Photo:</strong> Universal balanced reconstruction for photographs, landscapes, architectural renders, and stock imagery.<br>
+                            <strong>Portrait & Face:</strong> Preserves authentic skin pores, eyelashes, and facial symmetry while eliminating JPEG digital noise.<br>
+                            <strong>Anime / Art:</strong> Enhances digital paintings, concept art, and illustrations with vibrant color fidelity and crisp strokes.<br>
+                            <strong>Text & Logo:</strong> Eliminates vector rasterization blur, making scans, typography, documents, and logos razor-sharp.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>What makes the 4× Ultra HD scale different from standard digital resizing?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Standard photo editors simply perform bilinear or bicubic interpolation, stretching existing pixels and creating blur. TJP Studio’s 4× pipeline performs true neural synthesis: it reconstructs missing sub-pixel frequencies, sharpens structural contours, and refines micro-textures so the final image looks as if it were originally shot on a high-end medium-format camera.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Who needs this image upscaling engine?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            E-commerce store owners upscaling low-res product photos, graphic designers preparing client assets for large-format print, digital artists upscaling AI-generated concept art, and photographers restoring vintage or low-light archives.
+                        </p>
+                    </details>
+                </div>
+            </section>
+
         </div>
 
         <!-- ================================================================= -->
@@ -817,7 +941,68 @@ class="min-h-screen flex flex-col justify-between antialiased">
                         Enhance Another File
                     </button>
                 </div>
+
             </div>
+
+            <!-- SEO FAQ Section: Studio Audio & Voice Mastering -->
+            <section class="mt-12 max-w-4xl mx-auto mb-10 px-2">
+                <div class="text-center mb-6">
+                    <span class="text-xs font-bold text-[#5145cd] uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">Audio Engineering Knowledge Base</span>
+                    <h3 class="text-xl sm:text-2xl font-extrabold text-gray-900 mt-2">Frequently Asked Questions — Studio Audio & Voice Mastering</h3>
+                </div>
+
+                <div class="space-y-3">
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm" open>
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>How is TJP Audio Enhancer different from vocal-only tools like Adobe Podcast?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Platforms like Adobe Podcast apply an aggressive speech-isolation filter that completely ruins music, cutting off acoustic instruments, background ambiance, and reverb tails. TJP Audio Studio features a Dual-Engine Architecture: Voice & Speech Mode automatically engages an adaptive downward noise gate, 6.8kHz de-esser, 160Hz chest warmth, and dialogue leveling to turn noisy phone voice notes into broadcast studio podcasts. Music & Song Mode completely bypasses the noise gate, preserving sub-bass kick drums (55Hz), expanding the 3D stereo soundstage, and applying transparent mastering bus compression without cutting instrument sustains.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Can I upload a raw video file directly into the Audio Enhancer?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Yes. You do not need to convert your phone videos to MP3 first. You can drop raw .mp4, .mov, or .webm video files directly into the Audio Enhancer. The engine demuxes and extracts the audio stream in under half a second, runs the mastering chain, and exports a lossless 48kHz WAV master.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Will the voice enhancer make my speech sound robotic or hollow?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            No. "Robotic" speech occurs when phase-cancellation algorithms overly suppress speech harmonics. TJP Studio uses an analog-modeled vocal chain: an 80Hz high-pass filter to kill AC hum, a selective 340Hz notch to eliminate boxy room echo, a 3.5kHz speech presence boost, and soft-knee dynamics that keep vocal cadence natural and warm.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>What audio loudness standard does the final output follow?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            The engine masters audio to -14 LUFS with a -0.8 dBFS True-Peak limiter. This matches the strict loudness specifications required by Spotify, Apple Music, YouTube, and broadcast television, guaranteeing zero digital distortion or harsh clipping.
+                        </p>
+                    </details>
+
+                    <details class="group bg-white rounded-2xl border border-gray-200/80 p-4 transition shadow-sm">
+                        <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none text-sm sm:text-base">
+                            <span>Who is this audio tool built for?</span>
+                            <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <p class="text-xs sm:text-sm text-gray-600 mt-3 leading-relaxed">
+                            Podcasters, voiceover artists, video creators recording talking-head videos on smartphones, musicians seeking a quick mastering polish on demos/beats, and content creators needing instant noise-free dialogue for social clips.
+                        </p>
+                    </details>
+                </div>
+            </section>
 
         </div>
 
