@@ -130,9 +130,14 @@ async function index(): Promise<void> {
         Alpine.store('imagePreset', preset);
         await triggerInstantImageEnhance();
     };
-    window.toggleZoomMode = () => {
+    window.toggleZoomMode = async () => {
         const nextZoom = !Alpine.store('isZoomed');
         Alpine.store('isZoomed', nextZoom);
+        if (patchController) {
+            patchController.setZoomMode(nextZoom);
+        }
+        Alpine.store('previewLoading', true);
+        await updateLiveVideoPreview();
     };
 
     window.selectVideoFamily = async (family: VideoModelFamily) => {

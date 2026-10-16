@@ -23,10 +23,10 @@ export class PatchPreviewController {
   private compareContainer: HTMLElement;
   private onCropChange: (crop: CropRect) => void;
 
-  // 192x192 patch (matches free.upscaler.video for true 2x pixel inspection)
   public crop: CropRect = { x: 0, y: 0, width: 192, height: 192 };
   private isDraggingMinimap: boolean = false;
   private minimapScale: number = 1;
+  public isZoomed: boolean = false; // Default: false = Full video frame view
 
   constructor(config: PatchPreviewConfig) {
     this.video = config.video;
@@ -39,13 +39,14 @@ export class PatchPreviewController {
 
     this.initGeometry();
     this.bindEvents();
+    this.applyZoomModeStyles();
   }
 
   public initGeometry(): void {
     const vW = this.video.videoWidth || 640;
     const vH = this.video.videoHeight || 360;
 
-    // Tight 192px crop: enables pixel-level comparison like free.upscaler.video
+    // 192px patch for 1:1 inspection mode
     const patchSize = Math.min(192, Math.min(vW, vH));
     const patchW = patchSize;
     const patchH = patchSize;
@@ -57,15 +58,8 @@ export class PatchPreviewController {
       height: patchH
     };
 
-    // Magnify to 384x384 on screen so source pixels are visible on the left and sharp on the right
-    const displaySize = patchSize * 2;
-    this.playerFrame.style.width = `${displaySize}px`;
-    this.playerFrame.style.height = `${displaySize}px`;
-    this.playerFrame.style.minWidth = `${displaySize}px`;
-    this.playerFrame.style.minHeight = `${displaySize}px`;
-
     // Minimap calculation
-    const miniW = Math.round(Math.min(0.35 * displaySize, 120));
+    const miniW = 100;
     const miniH = Math.round(miniW * (vH / vW));
     this.minimapCanvas.width = miniW;
     this.minimapCanvas.height = miniH;
@@ -73,8 +67,48 @@ export class PatchPreviewController {
     this.minimapCanvas.style.height = `${miniH}px`;
     this.minimapScale = miniW / vW;
 
+    this.applyZoomModeStyles();
     this.renderMinimap();
     this.updateViewportBox();
+  }
+
+  public setZoomMode(zoomed: boolean): void {
+    this.isZoomed = zoomed;
+    this.applyZoomModeStyles();
+  }
+
+  public toggleZoomMode(): boolean {
+    this.isZoomed = !this.isZoomed;
+    this.applyZoomModeStyles();
+    return this.isZoomed;
+  }
+
+  private applyZoomModeStyles(): void {
+    const minimapWrapper = this.minimapCanvas.parentElement;
+    const vW = this.video.videoWidth || 640;
+    const vH = this.video.videoHeight || 360;
+
+    if (this.isZoomed) {
+      // 1:1 Zoom inspection mode: 384x384 square crop with minimap
+      if (minimapWrapper) minimapWrapper.style.display = 'block';
+      this.playerFrame.style.width = '384px';
+      this.playerFrame.style.height = '384px';
+      this.playerFrame.style.aspectRatio = '1 / 1';
+    } else {
+      // Full frame mode: hide minimap and adapt frame aspect ratio to the video
+      if (minimapWrapper) minimapWrapper.style.display = 'none';
+      const maxDim = 384;
+      const aspect = vW / vH;
+      let displayW = maxDim;
+      let displayH = Math.round(maxDim / aspect);
+      if (displayH > maxDim) {
+        displayH = maxDim;
+        displayW = Math.round(maxDim * aspect);
+      }
+      this.playerFrame.style.width = `${displayW}px`;
+      this.playerFrame.style.height = `${displayH}px`;
+      this.playerFrame.style.aspectRatio = `${vW} / ${vH}`;
+    }
   }
 
   public renderMinimap(): void {
@@ -101,6 +135,8 @@ export class PatchPreviewController {
   }
 
   public setCropFromMinimap(clientX: number, clientY: number): void {
+    if (!this.isZoomed) return;
+
     const rect = this.minimapCanvas.getBoundingClientRect();
     const clickX = clientX - rect.left;
     const clickY = clientY - rect.top;
@@ -156,7 +192,26 @@ export class PatchPreviewController {
     window.addEventListener('touchend', onPointerUp);
   }
 
+  // Returns either the full video scene or the 1:1 inspection patch depending on zoom mode
   public async getCroppedBitmap(): Promise<ImageBitmap> {
+    const vW = this.video.videoWidth || 640;
+    const vH = this.video.videoHeight || 360;
+
+    if (!this.isZoomed) {
+      // Full frame mode: fit entire video into WebGPU preview dimensions (even numbers)
+      const maxDim = 384;
+      const scale = Math.min(maxDim / vW, maxDim / vH);
+      const targetW = Math.floor(Math.round(vW * scale) / 2) * 2;
+      const targetH = Math.floor(Math.round(vH * scale) / 2) * 2;
+
+      return await createImageBitmap(this.video, {
+        resizeWidth: targetW,
+        resizeHeight: targetH,
+        resizeQuality: 'high'
+      });
+    }
+
+    // Zoom mode: native 1:1 pixel inspection crop
     return await createImageBitmap(
       this.video,
       this.crop.x,
