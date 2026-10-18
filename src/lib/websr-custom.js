@@ -1261,7 +1261,19 @@ const WebSR = (() => {
           const t = await navigator.gpu.requestAdapter();
           if (!t) return !1;
           const e = t.features.has("shader-f16") ? ["shader-f16"] : [];
-          return (await t.requestDevice({ requiredFeatures: e })) || !1;
+          
+          // Unlock maximum hardware memory limits to prevent slow tiling overhead
+          const limits = {};
+          if (t.limits.maxStorageBufferBindingSize) limits.maxStorageBufferBindingSize = t.limits.maxStorageBufferBindingSize;
+          if (t.limits.maxBufferSize) limits.maxBufferSize = t.limits.maxBufferSize;
+          if (t.limits.maxComputeWorkgroupsPerDimension) limits.maxComputeWorkgroupsPerDimension = t.limits.maxComputeWorkgroupsPerDimension;
+          
+          try {
+            return (await t.requestDevice({ requiredFeatures: e, requiredLimits: limits })) || !1;
+          } catch(err) {
+            // Safe fallback if browser restricts memory allocation
+            return (await t.requestDevice({ requiredFeatures: e })) || !1;
+          }
         }
         static computeMaxTilePixels(t, e = 1, i = 134217728) {
           const r = o.NetworkBufferCounts[t];
