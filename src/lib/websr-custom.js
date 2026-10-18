@@ -1276,13 +1276,16 @@ const WebSR = (() => {
           }
         }
         static computeMaxTilePixels(t, e = 1, i = 134217728) {
-          const r = o.NetworkBufferCounts[t];
-          const n = o.NetworkBytesPerPixel[t];
-          let s = 1e8;
-          s = 3 == e ? 1e9 : 2 == e ? 25e7 : 1 == e ? 1e8 : 5e7;
+          const r = o.NetworkBufferCounts[t], n = o.NetworkBytesPerPixel[t];
+          let s = 1e9; // Force maximum base pool
           let a = Math.floor(s / (r * n));
           const l = o.NetworkMaxBufferBytesPerPixel[t];
-          return l && (a = Math.min(a, Math.floor(i / l))), a;
+          
+          // Chrome heavily throttles reported VRAM to 128MB for security. 
+          // Override to 1GB (1073741824) to stop 12-tile video fragmentation lag.
+          const actualLimit = Math.max(i, 1073741824);
+          
+          return l && (a = Math.min(a, Math.floor(actualLimit / l))), a;
         }
         static computeOptimalGrid(t, e, i) {
           if (t * e <= i) return { width: t, height: e };
