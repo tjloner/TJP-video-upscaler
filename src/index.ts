@@ -312,13 +312,9 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
         Alpine.store('activeSnapshotTime', snapTimes[0]);
 
         video.onseeked = async () => {
-            if ('requestVideoFrameCallback' in video) {
-                await new Promise<void>(resolve => {
-                    (video as any).requestVideoFrameCallback(() => resolve());
-                });
-            } else {
-                await new Promise(r => setTimeout(r, 80));
-            }
+            // Safe 50ms buffer to guarantee Chrome decodes the hidden frame
+            await new Promise(r => setTimeout(r, 50));
+            
             if (patchController) patchController.renderMinimap();
             Alpine.store('previewLoading', true);
             await updateLiveVideoPreview();
