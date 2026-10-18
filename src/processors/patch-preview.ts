@@ -198,26 +198,33 @@ export class PatchPreviewController {
     const vH = this.video.videoHeight || 360;
 
     if (!this.isZoomed) {
-      // Full frame mode: fit entire video into WebGPU preview dimensions (even numbers)
+      // Full frame mode: fit entire video into WebGPU preview dimensions safely
       const maxDim = 384;
       const scale = Math.min(maxDim / vW, maxDim / vH);
       const targetW = Math.floor(Math.round(vW * scale) / 2) * 2;
       const targetH = Math.floor(Math.round(vH * scale) / 2) * 2;
 
-      return await createImageBitmap(this.video, {
-        resizeWidth: targetW,
-        resizeHeight: targetH,
-        resizeQuality: 'high'
-      });
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d')!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(this.video, 0, 0, targetW, targetH);
+      return await createImageBitmap(canvas);
     }
 
     // Zoom mode: native 1:1 pixel inspection crop
-    return await createImageBitmap(
+    const canvas = document.createElement('canvas');
+    canvas.width = this.crop.width;
+    canvas.height = this.crop.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
       this.video,
-      this.crop.x,
-      this.crop.y,
-      this.crop.width,
-      this.crop.height
+      this.crop.x, this.crop.y, this.crop.width, this.crop.height,
+      0, 0, this.crop.width, this.crop.height
     );
+    return await createImageBitmap(canvas);
   }
 }

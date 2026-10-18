@@ -244,11 +244,11 @@ async function loadVideo(source: any): Promise<void> {
     Alpine.store('download_name', download_name);
     Alpine.store('filename', file.name);
 
-    const arrayBuffer = await file.arrayBuffer();
-    await setupPreview(arrayBuffer);
+    // Bypass RAM entirely: pass the File directly to the player
+    await setupPreview(file);
 }
 
-async function setupPreview(data: ArrayBuffer): Promise<void> {
+async function setupPreview(file: File): Promise<void> {
     const host = document.getElementById('hidden-video-host');
     if (host) host.innerHTML = '';
 
@@ -259,8 +259,7 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
     if (host) host.appendChild(video);
 
-    const fileBlob = new Blob([data], { type: "video/mp4" });
-    video.src = URL.createObjectURL(fileBlob);
+    video.src = URL.createObjectURL(file);
 
     video.onerror = function () {
         showError("Unable to decode this video stream. Please ensure it is an H.264/AAC MP4 video.");
