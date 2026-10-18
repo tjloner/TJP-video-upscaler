@@ -1137,8 +1137,8 @@ const WebSR = (() => {
             const s = this.context.device.createCommandEncoder();
             s.copyTextureToTexture({ texture: u, origin: { x: i.cropX, y: i.cropY } }, { texture: o, origin: { x: i.dstX, y: i.dstY } }, { width: i.dstW, height: i.dstH });
             this.context.device.queue.submit([s.finish()]);
+            await this.context.device.queue.onSubmittedWorkDone();
             if (e) {
-              await this.context.device.queue.onSubmittedWorkDone();
               e(t + 1, this.tiles.length);
             }
           }

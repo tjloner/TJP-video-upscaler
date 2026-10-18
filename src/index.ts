@@ -326,13 +326,6 @@ async function setupPreview(data: ArrayBuffer): Promise<void> {
 
         video.currentTime = snapTimes[0];
 
-        setTimeout(async () => {
-            if (Alpine.store('state') === 'loading') {
-                if (patchController) patchController.renderMinimap();
-                await updateLiveVideoPreview();
-            }
-        }, 800);
-
         window.seekToTimestamp = function (timeSec: number) {
             if (Alpine.store('state') === 'processing') return;
             Alpine.store('activeSnapshotTime', timeSec);
