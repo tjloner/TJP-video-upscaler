@@ -63,9 +63,11 @@ export async function upscaleImage(
 
   const { networkName, weights } = await getModelWeights(options.preset);
 
-  options.onProgress?.('processing', 25, `Running Neural Super-Resolution (${networkName})...`);
+  options.onProgress?.('processing', 15, `Phase 1: Deep Neural Super-Resolution (${networkName})...`);
 
-  // Stage 1: 2x Native Neural Reconstruction
+  // ==========================================
+  // PHASE 1: Native 2x Neural Reconstruction
+  // ==========================================
   const pass1Width = inWidth * 2;
   const pass1Height = inHeight * 2;
   const canvasPass1 = new OffscreenCanvas(pass1Width, pass1Height);
@@ -79,14 +81,17 @@ export async function upscaleImage(
     tier: gpuTier
   });
 
+  let finalCanvas: OffscreenCanvas = canvasPass1;
+
   try {
     let lastReportTime = 0;
     await websrPass1.render(imageSource as any, (done: number, total: number) => {
       const now = performance.now();
       if (now - lastReportTime > 80 || done === total) {
         lastReportTime = now;
-        const pct = Math.round(25 + (done / total) * 50);
-        options.onProgress?.('processing', pct, `Neural Reconstruction: ${done}/${total} large tiles`);
+        // If scale is 4, pass 1 is 15-50%. If scale is 2, pass 1 goes 15-85%.
+        const pct = Math.round(15 + (done / total) * (scale === 4 ? 35 : 70));
+        options.onProgress?.('processing', pct, `Neural Pass 1: ${done}/${total} large tiles`);
       }
     });
 
@@ -94,27 +99,60 @@ export async function upscaleImage(
       try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
     }
 
-    options.onProgress?.('processing', 80, 'Synthesizing Sub-Pixel Clarity...');
+    // ==========================================
+    // PHASE 2: True 4x Iterative Neural Gen
+    // ==========================================
+    if (scale === 4) {
+      options.onProgress?.('processing', 55, `Phase 2: True 4× Neural Generation...`);
+      await new Promise(resolve => setTimeout(resolve, 50)); // let UI breathe
+
+      const pass2Width = pass1Width * 2;
+      const pass2Height = pass1Height * 2;
+      const canvasPass2 = new OffscreenCanvas(pass2Width, pass2Height);
+      
+      const pass1Bitmap = await createImageBitmap(canvasPass1);
+
+      const websrPass2 = new WebSR({
+        network_name: networkName as any,
+        weights: weights,
+        resolution: { width: pass1Width, height: pass1Height },
+        gpu: gpu,
+        canvas: canvasPass2 as any,
+        tier: gpuTier
+      });
+
+      try {
+        let lastReportTime2 = 0;
+        await websrPass2.render(pass1Bitmap as any, (done: number, total: number) => {
+          const now = performance.now();
+          if (now - lastReportTime2 > 80 || done === total) {
+            lastReportTime2 = now;
+            const pct = Math.round(55 + (done / total) * 35);
+            options.onProgress?.('processing', pct, `Neural Pass 2 (True 4×): ${done}/${total} tiles`);
+          }
+        });
+
+        if (gpu.queue) {
+          try { await gpu.queue.onSubmittedWorkDone(); } catch (e) {}
+        }
+        
+        finalCanvas = canvasPass2;
+      } finally {
+        pass1Bitmap.close();
+        try { await websrPass2.destroy(); } catch (e) {}
+      }
+    }
+
+    // ==========================================
+    // PHASE 3: Micro-Contrast & Output
+    // ==========================================
+    options.onProgress?.('processing', 92, 'Refining Micro-Textures & Contours...');
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    const targetWidth = inWidth * scale;
-    const targetHeight = inHeight * scale;
-
-    // Stage 2: Hardware-Accelerated 4x Detail Synthesis
-    const finalCanvas = new OffscreenCanvas(targetWidth, targetHeight);
     const ctx = finalCanvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) throw new Error("Could not create 2D canvas context");
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    const pass1Bitmap = await createImageBitmap(canvasPass1);
-    ctx.drawImage(pass1Bitmap, 0, 0, targetWidth, targetHeight);
-    pass1Bitmap.close();
-
-    // GPU-accelerated micro-contrast and unsharp edge sharpening (0 CPU freeze)
-    options.onProgress?.('processing', 90, 'Refining Micro-Textures & Contours...');
-    applyHardwareClarityPass(ctx, targetWidth, targetHeight, options.preset);
+    if (ctx) {
+      applyHardwareClarityPass(ctx, finalCanvas.width, finalCanvas.height, options.preset);
+    }
 
     options.onProgress?.('processing', 96, 'Exporting Lossless PNG...');
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -125,8 +163,8 @@ export async function upscaleImage(
 
     const exportBitmap = await createImageBitmap(finalCanvas);
     const fallbackCanvas = document.createElement('canvas');
-    fallbackCanvas.width = targetWidth;
-    fallbackCanvas.height = targetHeight;
+    fallbackCanvas.width = finalCanvas.width;
+    fallbackCanvas.height = finalCanvas.height;
     const fallbackCtx = fallbackCanvas.getContext('2d');
     if (fallbackCtx) {
       fallbackCtx.drawImage(exportBitmap, 0, 0);
@@ -139,6 +177,7 @@ export async function upscaleImage(
         else reject(new Error("Image blob conversion failed"));
       }, 'image/png');
     });
+
   } finally {
     try { await websrPass1.destroy(); } catch (e) {}
   }
